@@ -643,9 +643,16 @@ from pathlib import Path
 import os
 
 # Define the directories
-pycefr_dir = 'C:\\Users\\rujip\\Desktop\\SP_PyGress\\pycefr'  # Path to the PyCEFR scripts
+# Default one in my desktop
+# pycefr_dir = 'C:\\Users\\rujip\\Desktop\\SP_PyGress\\pycefr'  # Path to the PyCEFR scripts
+# json_data_dir = os.path.join(pycefr_dir, 'DATA_JSON')  # Where JSON data is stored
+# output_dir = 'C:\\Users\\rujip\\Desktop\\SP_PyGress\\CompetencyScore'  # Output directory for CSV and JSON files
+
+# mkdir -p /path/to/DATA_JSON
+# mkdir -p /path/to/CompetencyScore
+pycefr_dir = '/pycefr'  # Path to the PyCEFR scripts
 json_data_dir = os.path.join(pycefr_dir, 'DATA_JSON')  # Where JSON data is stored
-output_dir = 'C:\\Users\\rujip\\Desktop\\SP_PyGress\\CompetencyScore'  # Output directory for CSV and JSON files
+output_dir = '/CompetencyScore' 
 
 # Ensure output directory exists
 Path(output_dir).mkdir(parents=True, exist_ok=True)
