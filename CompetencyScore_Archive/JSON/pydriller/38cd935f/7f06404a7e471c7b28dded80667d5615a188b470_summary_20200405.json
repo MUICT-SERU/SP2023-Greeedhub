@@ -1,0 +1,29 @@
+{
+    "CommitHash": "7f06404a7e471c7b28dded80667d5615a188b470",
+    "ProjectName": "pydriller",
+    "AuthorID": "38cd935f",
+    "AuthorDateFormat": "20200405",
+    "Levels": {
+        "After": {
+            "A1": 92,
+            "A2": 139,
+            "C1": 7,
+            "B2": 113,
+            "B1": 5
+        },
+        "Before": {
+            "A1": 81,
+            "A2": 126,
+            "C1": 2,
+            "B2": 104,
+            "B1": 5
+        },
+        "Difference": {
+            "B2": 9,
+            "A1": 11,
+            "A2": 13,
+            "C1": 5,
+            "B1": 0
+        }
+    }
+}
