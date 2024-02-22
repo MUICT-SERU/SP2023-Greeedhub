@@ -1,4 +1,3 @@
-# Code for TrialPyDriller.py
 import os
 import csv
 import hashlib
@@ -8,7 +7,8 @@ import shutil
 import stat
 from datetime import datetime, timedelta
 import pytz
-import pandas as pd  # Import pandas for reading Excel files
+import pandas as pd  # Import pandas for reading CSV files
+import git.exc
 
 # Enhanced error handling for directory deletion
 def onerror(func, path, exc_info):
@@ -89,49 +89,61 @@ def extract_data(repo_url):
 
         author_ids = {}
 
-        for commit in Repository(repo_url).traverse_commits():
-            print(f"Processing commit {commit.hash}...")
+        try:
+            for commit in Repository(repo_url).traverse_commits():
+                print(f"Processing commit {commit.hash}...")
 
-            for index, modified_file in enumerate(commit.modified_files, start=1):
-                if modified_file.filename.endswith('.py'):
-                    print(f"  File #{index}: {modified_file.filename}")
+                for index, modified_file in enumerate(commit.modified_files, start=1):
+                    if modified_file.filename.endswith('.py'):
+                        print(f"  File #{index}: {modified_file.filename}")
 
-                    author_email = commit.author.email
-                    author_id = hash_author_email(author_email)
-                    if author_email not in author_ids:
-                        author_ids[author_email] = author_id
-                        author_email_writer.writerow([author_id, author_email])
+                        author_email = commit.author.email
+                        author_id = hash_author_email(author_email)
+                        if author_email not in author_ids:
+                            author_ids[author_email] = author_id
+                            author_email_writer.writerow([author_id, author_email])
 
-                    commit_directory = os.path.join(python_files_directory, author_id, commit.hash)
-                    before_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "before", index)
-                    after_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "after", index)
+                        commit_directory = os.path.join(python_files_directory, author_id, commit.hash)
+                        before_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "before", index)
+                        after_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "after", index)
 
-                    # Normalize timezone
-                    normalized_date = commit.author_date.astimezone(pytz.timezone('UTC'))
-                    normalized_timezone = '+0000' if normalized_date.utcoffset() == timedelta(0) else normalized_date.strftime('%z')
+                        # Normalize timezone
+                        normalized_date = commit.author_date.astimezone(pytz.timezone('UTC'))
+                        normalized_timezone = '+0000' if normalized_date.utcoffset() == timedelta(0) else normalized_date.strftime('%z')
 
-                    before_file_path = write_code_to_file(commit_directory, before_filename, modified_file.source_code_before)
-                    after_file_path = write_code_to_file(commit_directory, after_filename, modified_file.source_code)
+                        before_file_path = write_code_to_file(commit_directory, before_filename, modified_file.source_code_before)
+                        after_file_path = write_code_to_file(commit_directory, after_filename, modified_file.source_code)
 
-                    csv_writer.writerow([
-                        commit.hash,
-                        project_name,
-                        author_id,
-                        normalized_date.strftime("%Y-%m-%d %H:%M:%S"),
-                        normalized_timezone,
-                        modified_file.filename,
-                        modified_file.change_type.name,
-                        modified_file.added_lines,
-                        modified_file.deleted_lines,
-                        before_file_path,
-                        after_file_path
-                    ])
+                        csv_writer.writerow([
+                            commit.hash,
+                            project_name,
+                            author_id,
+                            normalized_date.strftime("%Y-%m-%d %H:%M:%S"),
+                            normalized_timezone,
+                            modified_file.filename,
+                            modified_file.change_type.name,
+                            modified_file.added_lines,
+                            modified_file.deleted_lines,
+                            before_file_path,
+                            after_file_path
+                        ])
+        except git.exc.GitCommandError as e:
+            print(f"Error processing repository {repo_url}: {e}")
+            mark_as_not_existed(repo_url)
+
+def mark_as_not_existed(repo_url):
+    """Marks a repository as 'NotExisted'."""
+    csv_path = 'DataPyPI.csv'  # Adjust the path as necessary
+    df = pd.read_csv(csv_path)
+    df.loc[df['URL'] == repo_url, 'NotExisted'] = 'Yes'
+    df.to_csv(csv_path, index=False)
 
 # Main execution starts here
-# Read repository URLs from DataPyPI.xlsx file in the same folder (assuming 'SP2023-Greeedhub' is the working directory)
-excel_path = 'DataPyPI.xlsx'  # Adjust the path as necessary
-df = pd.read_excel(excel_path)
-repo_urls = df['URL'].tolist()  # Extract URLs from the Excel file
+# Read repository URLs from DataPyPI.csv file in the same folder (assuming 'SP2023-Greeedhub' is the working directory)
+csv_path = 'DataPyPI.csv'  # Adjust the path as necessary
+df = pd.read_csv(csv_path)
+filtered_df = df[df['NotExisted'] != 'Yes']  # Filter out repositories marked as "NotExisted"
+repo_urls = filtered_df['URL'].tolist()  # Extract URLs from the CSV file
 
 for repo_url in repo_urls:
     print(f"Processing repository: {repo_url}")
