@@ -8,7 +8,6 @@ import stat
 from datetime import datetime, timedelta
 import pytz
 import pandas as pd  # Import pandas for reading CSV files
-import git.exc
 
 # Enhanced error handling for directory deletion
 def onerror(func, path, exc_info):
@@ -84,10 +83,11 @@ def extract_data(repo_url):
         csv_writer = csv.writer(csv_file)
         author_email_writer = csv.writer(author_email_file)
 
-        csv_writer.writerow(["CommitHash", "ProjectName", "AuthorID", "AuthorDate", "AuthorTimezone", "ModifiedFilename", "ChangeType", "AddedLines", "DeletedLines", "SourceCodeBeforeFilePath", "SourceCodeFilePath"])
+        csv_writer.writerow(["CommitHash", "ProjectName", "AuthorID", "AuthorDate", "AuthorTimezone", "ModifiedFilename", "ChangeType", "AddedLines", "DeletedLines", "SourceCodeBeforeFilePath", "SourceCodeFilePath", "DataWritten"])
         author_email_writer.writerow(["AuthorID", "AuthorEmail"])
 
         author_ids = {}
+        data_written = False  # Flag to track if data is written for this project
 
         try:
             for commit in Repository(repo_url).traverse_commits():
@@ -125,27 +125,28 @@ def extract_data(repo_url):
                             modified_file.added_lines,
                             modified_file.deleted_lines,
                             before_file_path,
-                            after_file_path
+                            after_file_path,
                         ])
+
+                data_written = True  # Mark as data written if there are no exceptions
+            print("Data extraction completed.")
         except git.exc.GitCommandError as e:
             print(f"Error processing repository {repo_url}: {e}")
-            mark_as_not_existed(repo_url)
+            return  # Skip this project
 
-def mark_as_not_existed(repo_url):
-    """Marks a repository as 'NotExisted'."""
-    csv_path = 'DataPyPI.csv'  # Adjust the path as necessary
-    df = pd.read_csv(csv_path)
-    df.loc[df['URL'] == repo_url, 'NotExisted'] = 'Yes'
-    df.to_csv(csv_path, index=False)
+    # After processing, update the CSV file to mark "Yes" for DataWritten and NotExisted if necessary
+    if not data_written:
+        df = pd.read_csv(csv_file_path)
+        df.loc[df['ProjectName'] == project_name, 'DataWritten'] = 'No'
+        df.loc[df['ProjectName'] == project_name, 'NotExisted'] = 'Yes'
+        df.to_csv(csv_file_path, index=False)
 
 # Main execution starts here
 # Read repository URLs from DataPyPI.csv file in the same folder (assuming 'SP2023-Greeedhub' is the working directory)
 csv_path = 'DataPyPI.csv'  # Adjust the path as necessary
 df = pd.read_csv(csv_path)
-filtered_df = df[df['NotExisted'] != 'Yes']  # Filter out repositories marked as "NotExisted"
-repo_urls = filtered_df['URL'].tolist()  # Extract URLs from the CSV file
+repo_urls = df.loc[df['NotExisted'] != 'Yes', 'URL'].tolist()  # Extract URLs from the CSV file where NotExisted is not 'Yes'
 
 for repo_url in repo_urls:
     print(f"Processing repository: {repo_url}")
     extract_data(repo_url)
-    print("Data extraction completed.")
