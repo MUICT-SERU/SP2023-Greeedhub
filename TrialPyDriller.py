@@ -8,6 +8,7 @@ import stat
 from datetime import datetime, timedelta
 import pytz
 import pandas as pd  # Import pandas for reading CSV files
+import git  # Import git for handling GitCommandError
 
 # Enhanced error handling for directory deletion
 def onerror(func, path, exc_info):
@@ -83,70 +84,74 @@ def extract_data(repo_url):
         csv_writer = csv.writer(csv_file)
         author_email_writer = csv.writer(author_email_file)
 
-        csv_writer.writerow(["CommitHash", "ProjectName", "AuthorID", "AuthorDate", "AuthorTimezone", "ModifiedFilename", "ChangeType", "AddedLines", "DeletedLines", "SourceCodeBeforeFilePath", "SourceCodeFilePath", "DataWritten"])
+        csv_writer.writerow(["CommitHash", "ProjectName", "AuthorID", "AuthorDate", "AuthorTimezone", "ModifiedFilename", "ChangeType", "AddedLines", "DeletedLines", "SourceCodeBeforeFilePath", "SourceCodeFilePath"])
         author_email_writer.writerow(["AuthorID", "AuthorEmail"])
 
         author_ids = {}
-        data_written = False  # Flag to track if data is written for this project
 
-        try:
-            for commit in Repository(repo_url).traverse_commits():
-                print(f"Processing commit {commit.hash}...")
+        for commit in Repository(repo_url).traverse_commits():
+            print(f"Processing commit {commit.hash}...")
 
-                for index, modified_file in enumerate(commit.modified_files, start=1):
-                    if modified_file.filename.endswith('.py'):
-                        print(f"  File #{index}: {modified_file.filename}")
+            for index, modified_file in enumerate(commit.modified_files, start=1):
+                if modified_file.filename.endswith('.py'):
+                    print(f"  File #{index}: {modified_file.filename}")
 
-                        author_email = commit.author.email
-                        author_id = hash_author_email(author_email)
-                        if author_email not in author_ids:
-                            author_ids[author_email] = author_id
-                            author_email_writer.writerow([author_id, author_email])
+                    author_email = commit.author.email
+                    author_id = hash_author_email(author_email)
+                    if author_email not in author_ids:
+                        author_ids[author_email] = author_id
+                        author_email_writer.writerow([author_id, author_email])
 
-                        commit_directory = os.path.join(python_files_directory, author_id, commit.hash)
-                        before_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "before", index)
-                        after_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "after", index)
+                    commit_directory = os.path.join(python_files_directory, author_id, commit.hash)
+                    before_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "before", index)
+                    after_filename = format_filename(commit.hash, project_name, author_id, commit.author_date, "after", index)
 
-                        # Normalize timezone
-                        normalized_date = commit.author_date.astimezone(pytz.timezone('UTC'))
-                        normalized_timezone = '+0000' if normalized_date.utcoffset() == timedelta(0) else normalized_date.strftime('%z')
+                    # Normalize timezone
+                    normalized_date = commit.author_date.astimezone(pytz.timezone('UTC'))
+                    normalized_timezone = '+0000' if normalized_date.utcoffset() == timedelta(0) else normalized_date.strftime('%z')
 
-                        before_file_path = write_code_to_file(commit_directory, before_filename, modified_file.source_code_before)
-                        after_file_path = write_code_to_file(commit_directory, after_filename, modified_file.source_code)
+                    before_file_path = write_code_to_file(commit_directory, before_filename, modified_file.source_code_before)
+                    after_file_path = write_code_to_file(commit_directory, after_filename, modified_file.source_code)
 
-                        csv_writer.writerow([
-                            commit.hash,
-                            project_name,
-                            author_id,
-                            normalized_date.strftime("%Y-%m-%d %H:%M:%S"),
-                            normalized_timezone,
-                            modified_file.filename,
-                            modified_file.change_type.name,
-                            modified_file.added_lines,
-                            modified_file.deleted_lines,
-                            before_file_path,
-                            after_file_path,
-                        ])
+                    csv_writer.writerow([
+                        commit.hash,
+                        project_name,
+                        author_id,
+                        normalized_date.strftime("%Y-%m-%d %H:%M:%S"),
+                        normalized_timezone,
+                        modified_file.filename,
+                        modified_file.change_type.name,
+                        modified_file.added_lines,
+                        modified_file.deleted_lines,
+                        before_file_path,
+                        after_file_path
+                    ])
 
-                data_written = True  # Mark as data written if there are no exceptions
-            print("Data extraction completed.")
-        except git.exc.GitCommandError as e:
-            print(f"Error processing repository {repo_url}: {e}")
-            return  # Skip this project
+    # Mark the project as "DataWritten" if all data is recorded successfully
+    if all(df[df['URL'] == repo_url]['DataWritten'] == 'Yes'):
+        df.loc[df['URL'] == repo_url, 'DataWritten'] = 'Yes'
 
-    # After processing, update the CSV file to mark "Yes" for DataWritten and NotExisted if necessary
-    if not data_written:
-        df = pd.read_csv(csv_file_path)
-        df.loc[df['ProjectName'] == project_name, 'DataWritten'] = 'No'
-        df.loc[df['ProjectName'] == project_name, 'NotExisted'] = 'Yes'
-        df.to_csv(csv_file_path, index=False)
-
-# Main execution starts here
-# Read repository URLs from DataPyPI.csv file in the same folder (assuming 'SP2023-Greeedhub' is the working directory)
+# Read repository URLs from DataPyPI.csv file in the same folder
 csv_path = 'DataPyPI.csv'  # Adjust the path as necessary
 df = pd.read_csv(csv_path)
-repo_urls = df.loc[df['NotExisted'] != 'Yes', 'URL'].tolist()  # Extract URLs from the CSV file where NotExisted is not 'Yes'
 
-for repo_url in repo_urls:
+# Add "NotExisted" and "DataWritten" columns if they don't exist
+if 'NotExisted' not in df.columns:
+    df['NotExisted'] = 'No'
+if 'DataWritten' not in df.columns:
+    df['DataWritten'] = 'No'
+
+for _, row in df.iterrows():
+    repo_url = row['URL']
     print(f"Processing repository: {repo_url}")
-    extract_data(repo_url)
+
+    try:
+        extract_data(repo_url)
+        print("Data extraction completed.")
+    except git.exc.GitCommandError as e:
+        print(f"Error processing repository {repo_url}: {e}")
+        df.loc[df['URL'] == repo_url, 'NotExisted'] = 'Yes'  # Mark project as "NotExisted"
+        continue
+
+# Write the updated DataFrame back to the CSV file
+df.to_csv(csv_path, index=False)
