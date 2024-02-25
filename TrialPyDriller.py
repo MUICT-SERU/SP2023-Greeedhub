@@ -59,7 +59,7 @@ def write_code_to_file(directory, filename, code):
         print(f"Failed to write file {filename} at {directory}: {e}")
         return None
 
-def extract_data(repo_url):
+def extract_data(repo_url, df):
     """Extracts data from repository commits and writes to CSV."""
     parsed_url = urlparse(repo_url)
     project_name = parsed_url.path.split('/')[-1]
@@ -145,13 +145,14 @@ for _, row in df.iterrows():
     repo_url = row['URL']
     print(f"Processing repository: {repo_url}")
 
-    try:
-        extract_data(repo_url)
-        print("Data extraction completed.")
-    except git.exc.GitCommandError as e:
-        print(f"Error processing repository {repo_url}: {e}")
-        df.loc[df['URL'] == repo_url, 'NotExisted'] = 'Yes'  # Mark project as "NotExisted"
-        continue
+    if row['NotExisted'] != 'Yes':  # Check if NotExisted is not 'Yes'
+        try:
+            extract_data(repo_url, df)
+            print("Data extraction completed.")
+            df.loc[df['URL'] == repo_url, 'DataWritten'] = 'Yes'  # Mark project as "DataWritten"
+        except git.exc.GitCommandError as e:
+            print(f"Error processing repository {repo_url}: {e}")
+            df.loc[df['URL'] == repo_url, 'NotExisted'] = 'Yes'  # Mark project as "NotExisted"
 
 # Write the updated DataFrame back to the CSV file
 df.to_csv(csv_path, index=False)
