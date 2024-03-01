@@ -1,0 +1,332 @@
+""" Progress notifier. """
+import math
+from time import time, gmtime, strftime
+
+from tqdm import tqdm
+from tqdm.notebook import tqdm as tqdm_notebook
+from tqdm.auto import tqdm as tqdm_auto
+
+import numpy as np
+from IPython import display
+import matplotlib.pyplot as plt
+
+from .monitor import ResourceMonitor, MONITOR_ALIASES
+from .named_expr import AlgebraicNamedExpression, NamedExpression, eval_expr
+
+
+class DummyBar:
+    """ Progress tracker without visual representation. """
+    #pylint: disable=invalid-name
+    def __init__(self, total, *args, **kwargs):
+        self.total = total
+        self.args, self.kwargs = args, kwargs
+
+        self.n = 0
+        self.start_t = time()
+
+    def update(self, n):
+        self.n += n
+
+    def format_meter(self, n, total, t, **kwargs):
+        _ = kwargs
+        return f'{n}/{total} iterations done; elapsed time is {t:3.3} seconds'
+
+    def sp(self, *args, **kwargs):
+        _ = args, kwargs
+
+    def set_description(self, *args, **kwargs):
+        _ = args, kwargs
+
+    def close(self):
+        pass
+
+
+
+class Notifier:
+    """ Progress tracker and a resource monitor tool in one.
+
+    Parameters
+    ----------
+    bar : {'n', 'a', 'j', True} or callable
+        Sets the type of used progress bar:
+            - `callable` must provide a tqdm-like interface.
+            - `n` stands for notebook version of tqdm bar.
+            - `a` stands for automatic choise of appropriate tqdm bar.
+            - `j` stands for graph drawing as a progress bar.
+            - `t` or True for standard text tqdm is used.
+            - otherwise, no progress bar will be displayed. Note that iterations,
+            as well as everything else (monitors, variables, logs) are still tracked.
+    total, batch_size, n_iters, n_epochs, length : int
+        Parameters to calculate total amount of iterations.
+    drop_last : bool
+        Whether the last batch of data is dropped from iterations.
+    variables : str, :class:`.NamedExpression` or sequence of them
+        Allows to set trackable entities from the pipeline the Notifier is used in:
+        If str, then stands for name of the variable to get from the pipeline.
+        If any of the named expressions, then evaluated with the pipeline.
+    monitors : str, :class:`.Monitor` or sequence of them
+        Allows to monitor resources. Strings should be registered aliases for monitors like `cpu`, `gpu`, etc.
+    monitor_kwargs : dict
+        Parameters of monitor creation like `frequency`, `pid`, etc.
+    plot : bool
+        If True, then tracked data (usually list of values like memory usage or loss over training process)
+        is dynamically tracked on graphs. Note that rendering takes a lot of time.
+    window : int
+        Allows to plot only the last `window` values from every tracked container.
+    layout : str
+        If `h`, then subplots are drawn horizontally; vertically otherwise.
+    figsize : tuple of numbers
+        Total size of drawn figure.
+    *args, **kwargs
+        Positional and keyword arguments that are used to create underlying progress bar.
+    """
+    def __init__(self, bar=None, *args,
+                 total=None, batch_size=None, n_iters=None, n_epochs=None, drop_last=False, length=None,
+                 frequency=1, monitors=None, graphs=None, file=None,
+                 window=None, layout='h', figsize=None, savepath=None, **kwargs):
+
+        # Prepare data containers like monitors and pipeline variables
+        data_containers = []
+
+        if monitors:
+            monitors = monitors if isinstance(monitors, (tuple, list)) else [monitors]
+        else:
+            monitors = []
+
+        if graphs:
+            graphs = graphs if isinstance(graphs, (tuple, list)) else [graphs]
+        else:
+            graphs = []
+
+        data_containers = monitors + graphs
+        data_containers = [MONITOR_ALIASES[container.lower()]()
+                           if isinstance(container, str) and container.lower() in MONITOR_ALIASES else container
+                           for container in data_containers]
+        self.has_monitors = sum(isinstance(container, ResourceMonitor) for container in data_containers)
+        self.has_graphs = len(graphs) > 0
+        self.n_monitors = len(monitors)
+
+        names = []
+        for container in data_containers:
+            if isinstance(container, ResourceMonitor):
+                names.append(container.__class__.__name__)
+            elif isinstance(container, NamedExpression):
+                names.append(container.name)
+            elif isinstance(container, str):
+                names.append(container)
+
+        self.frequency = frequency
+        self.data_containers = dict(zip(names, data_containers))
+        self.data = {name: [] for name in names}
+        self.timestamps = []
+        self.start_monitors()
+
+        # Prepare file log
+        self.file = file
+        if self.file:
+            with open(self.file, 'w') as _:
+                pass
+
+        # Create bar; set the number of total iterations, if possible
+        self.bar = None
+
+        if callable(bar):
+            bar_func = bar
+        elif bar in ['n', 'nb', 'notebook', 'j', 'jpn', 'jupyter']:
+            bar_func = tqdm_notebook
+        elif bar in ['a', 'auto']:
+            bar_func = tqdm_auto
+        elif bar in [True, 't', 'tqdm']:
+            bar_func = tqdm
+        else:
+            bar_func = DummyBar
+
+        # Set default values for bars
+        if 'ncols' not in kwargs:
+            if bar_func == tqdm_notebook:
+                kwargs['ncols'] = min(700 + 100 * len(monitors or []), 1000)
+            elif bar_func == tqdm:
+                kwargs['ncols'] = min(80 + 10 * len(monitors or []), 120)
+
+        self.bar_func = lambda total: bar_func(total=total, *args, **kwargs)
+        self.update_total(total=total, batch_size=batch_size, n_iters=n_iters, n_epochs=n_epochs,
+                          drop_last=drop_last, length=length)
+
+        # Prepare plot params
+        #pylint: disable=invalid-unary-operand-type
+        self.slice = slice(-window, None, None) if isinstance(window, int) else slice(None)
+        self.layout, self.figsize, self.savepath = layout, figsize, savepath
+
+
+
+    def update_total(self, batch_size, n_iters, n_epochs, drop_last, length, total=None):
+        """ Re-calculate total number of iterations. """
+        if total is None:
+            if n_iters is not None:
+                total = n_iters
+            if n_epochs is not None:
+                if drop_last:
+                    total = length // batch_size * n_epochs
+                else:
+                    total = math.ceil(length * n_epochs / batch_size)
+
+        # Force close previous bar, create new
+        if self.bar is not None:
+            try:
+                # jupyter bar must be closed and reopened
+                self.bar.sp(close=True)
+                self.bar = self.bar_func(total=total)
+            except TypeError:
+                # text bar can work with a simple reassigning of `total`
+                self.bar.total = total
+        else:
+            self.bar = self.bar_func(total=total)
+
+
+    def update(self, n=1, pipeline=None, batch=None):
+        """ Update Notifier with new info:
+            - increment underlying progress bar tracker
+            - set bar description
+            - fetch up-to-date data from pipeline and batch; gather info from monitors
+            - draw plots anew
+            - re-start monitors
+        """
+        if (self.bar.n + 1) % self.frequency == 0 or (self.bar.n == self.bar.total - 1):
+            self.timestamps.append(gmtime())
+
+            if self.data_containers:
+                self.update_data(pipeline=pipeline, batch=batch)
+                self.update_description()
+
+            if self.has_graphs:
+                self.update_plots(self.n_monitors, True)
+
+            if self.file:
+                self.update_file()
+
+            if self.has_monitors and self.bar.n < self.bar.total:
+                self.start_monitors()
+
+        self.bar.update(n)
+
+    def update_data(self, pipeline=None, batch=None):
+        """ Get data from monitor or pipeline. """
+        for name, container in self.data_containers.items():
+            if isinstance(container, ResourceMonitor):
+                value = container.stop()
+                self.data[name] = container.data
+
+            elif isinstance(container, NamedExpression):
+                value = eval_expr(container, pipeline=pipeline, batch=batch)
+                self.data[name] = value
+
+            elif isinstance(container, str):
+                value = pipeline.v(container)
+                self.data[name] = value
+
+    def update_description(self):
+        """ Set new bar description. """
+        description = self.create_description(iteration=-1)
+        self.bar.set_description(description)
+
+    def update_plots(self, index=0, add_suptitle=False, savepath=None):
+        """ Draw plots anew. """
+        num_graphs = len(self.data_containers) - index
+        layout = (1, num_graphs) if self.layout.startswith('h') else (num_graphs, 1)
+        figsize = self.figsize or ((20, 5) if self.layout.startswith('h') else (20, 5*num_graphs))
+
+        display.clear_output(wait=True)
+        _, ax = plt.subplots(*layout, figsize=figsize)
+        ax = ax if isinstance(ax, np.ndarray) else [ax]
+
+        for i, (name, container) in  enumerate(self.data_containers.items()):
+            if i >= index:
+                if isinstance(container, ResourceMonitor):
+                    data_x = np.array(container.ticks)[self.slice] - container.ticks[0]
+                    data_y = container.data[self.slice]
+                    x_label, y_label = 'Time, s', container.UNIT
+                else:
+                    data_y = self.data[name]
+                    data_x = list(range(len(data_y)))[self.slice]
+                    data_y = data_y[self.slice]
+                    x_label, y_label = 'Iteration', ''
+
+                if isinstance(data_y, (tuple, list)) or (isinstance(data_y, np.ndarray) and data_y.ndim == 1):
+                    ax[i - index].plot(data_x, data_y)
+                    ax[i - index].set_title(name, fontsize=12)
+                    ax[i - index].set_xlabel(x_label, fontsize=12)
+                    ax[i - index].set_ylabel(y_label, fontsize=12, rotation='horizontal', labelpad=15)
+                    ax[i - index].grid(True)
+                elif isinstance(data_y, np.ndarray) and data_y.ndim == 2:
+                    ax[i - index].imshow(data_y)
+                    ax[i - index].set_title(name, fontsize=12)
+
+        if add_suptitle:
+            title = self.format_meter(self.n+1, self.total, time()-self.start_t, ncols=80)
+            plt.suptitle(title, y=0.99, fontsize=14)
+
+        savepath = savepath or (f'{self.savepath}_{self.bar.n}' if self.savepath is not None else None)
+        if savepath:
+            plt.savefig(savepath, bbox_inches='tight', pad_inches=0)
+        plt.show()
+
+    def update_file(self):
+        """ Update file on the fly. """
+        with open(self.file, 'a+') as f:
+            print(self.create_message(self.bar.n, self.bar.desc[:-2]), file=f)
+
+
+    # Convenient alias for working with an instance
+    visualize = update_plots
+
+    def to_file(self, file):
+        """ Log all the iteration-wise info (timestamps, descriptions) into file."""
+        with open(file, 'w') as f:
+            for i in range(self.bar.n):
+                description = self.create_description(iteration=i)
+                print(self.create_message(i, description), file=f)
+
+    def __call__(self, iterable):
+        self.update_total(0, 0, 0, 0, 0, total=len(iterable))
+        for item in iterable:
+            yield item
+            self.update()
+        self.close()
+
+    def close(self):
+        """ Close the underlying progress bar. """
+        self.bar.close()
+
+
+    # Utility functions
+    def start_monitors(self):
+        """ Start collection of data for every resource monitor. """
+        for container in self.data_containers.values():
+            if isinstance(container, ResourceMonitor):
+                container.start()
+
+    def create_description(self, iteration):
+        """ Create string description of a given iteration. """
+        description = []
+        for name, container in self.data_containers.items():
+            if not isinstance(container, ResourceMonitor):
+                if isinstance(container, AlgebraicNamedExpression):
+                    desc = self.data[name][iteration]
+                    description.append(desc)
+                elif isinstance(container, (str, NamedExpression)):
+                    value = self.data[name][iteration]
+                    if isinstance(value, (int, float)):
+                        desc = f'{name}={value:<6.6}' if isinstance(value, float) else f'{name}={value:<6}'
+                        description.append(desc)
+        return ';   '.join(description)
+
+    def create_message(self, iteration, description):
+        """ Combine timestamp, iteration and description into one string message. """
+        timestamp = strftime("%Y-%m-%d  %H:%M:%S", self.timestamps[iteration])
+        return f'{timestamp}     Iteration {iteration:5};    {description}'
+
+    def __getattr__(self, key):
+        """ Redirect everything to the underlying bar. """
+        if not key in self.__dict__ and hasattr(self.bar, key):
+            return getattr(self.bar, key)
+        raise AttributeError(key)

@@ -1,0 +1,202 @@
+from __future__ import division, print_function, absolute_import
+
+import os
+import shutil
+from pprint import pprint
+import numpy as np
+import numpy.ma as ma
+from numpy.testing.utils import assert_array_equal, assert_equal
+
+import rawpy
+import rawpy.enhance
+import imageio
+from rawpy.enhance import _repair_bad_pixels_bayer2x2,\
+    _repair_bad_pixels_generic, find_bad_pixels
+
+# Nikon D3S
+rawTestPath = os.path.join(os.path.dirname(__file__), 'iss030e122639.NEF')
+badPixelsTestPath = os.path.join(os.path.dirname(__file__), 'bad_pixels.gz')
+
+# Nikon D4
+raw2TestPath = os.path.join(os.path.dirname(__file__), 'iss042e297200.NEF')
+
+
+def testVersion():
+    print('using libraw', rawpy.libraw_version)
+    pprint(rawpy.flags)
+    for d in rawpy.DemosaicAlgorithm:
+        print(d.name, 'NOT' if d.isSupported is False 
+                      else 'possibly' if d.isSupported is None else '', 'supported')
+
+def testFileOpenAndPostProcess():
+    raw = rawpy.imread(rawTestPath)
+    assert_array_equal(raw.raw_image.shape, [2844, 4288])
+        
+    rgb = raw.postprocess(no_auto_bright=True, user_wb=raw.daylight_whitebalance)
+    assert_array_equal(rgb.shape, [2844, 4284, 3])
+    print_stats(rgb)
+    save('test_8daylight.tiff', rgb)
+ 
+    print('daylight white balance multipliers:', raw.daylight_whitebalance)
+     
+    rgb = raw.postprocess(no_auto_bright=True, user_wb=raw.daylight_whitebalance)
+    print_stats(rgb)
+    save('test_8daylight2.tiff', rgb)
+ 
+    rgb = raw.postprocess(no_auto_bright=True, user_wb=raw.daylight_whitebalance,
+                          output_bps=16)
+    print_stats(rgb)
+    save('test_16daylight.tiff', rgb)
+     
+    # linear images are more useful for science (=no gamma correction)
+    # see http://www.mit.edu/~kimo/blog/linear.html
+    rgb = raw.postprocess(no_auto_bright=True, user_wb=raw.daylight_whitebalance,
+                          gamma=(1,1), output_bps=16)
+    print_stats(rgb)
+    save('test_16daylight_linear.tiff', rgb)
+
+def testContextManager():
+    with rawpy.imread(rawTestPath) as raw:
+        assert_array_equal(raw.raw_image.shape, [2844, 4288])
+
+def testManualClose():
+    raw = rawpy.imread(rawTestPath)
+    assert_array_equal(raw.raw_image.shape, [2844, 4288])
+    raw.close()
+    
+def testWindowsFileLockRelease():
+    # see https://github.com/neothemachine/rawpy/issues/10
+    # we make a copy of the raw file which we will later remove
+    copyPath = rawTestPath + '-copy'
+    shutil.copyfile(rawTestPath, copyPath)
+    with rawpy.imread(copyPath) as raw:
+        rgb = raw.postprocess()
+    assert_array_equal(rgb.shape, [2844, 4284, 3])
+    print_stats(rgb)
+    # if the following does not throw an exception on Windows,
+    # then the file is not locked anymore, which is how it should be
+    os.remove(copyPath)
+    
+    # we test the same using .close() instead of a context manager
+    shutil.copyfile(rawTestPath, copyPath)
+    raw = rawpy.imread(copyPath)
+    rgb = raw.postprocess()
+    raw.close()
+    os.remove(copyPath)
+    assert_array_equal(rgb.shape, [2844, 4284, 3])
+
+def testProperties():
+    raw = rawpy.imread(rawTestPath)
+    
+    print('black_level_per_channel:', raw.black_level_per_channel)
+    print('color_matrix:', raw.color_matrix)
+    print('rgb_xyz_matrix:', raw.rgb_xyz_matrix)
+    print('tone_curve:', raw.tone_curve)
+    
+    assert_array_equal(raw.black_level_per_channel, [0,0,0,0])
+    
+    # older versions have zeros at the end, was probably a bug
+    if rawpy.libraw_version >= (0,16):
+        assert_array_equal(raw.tone_curve, np.arange(65536))
+
+def testBadPixelRepair():
+    def getColorNeighbors(raw, y, x):
+        # 5x5 area around coordinate masked by color of coordinate
+        raw_colors = raw.raw_colors_visible
+        raw_color = raw_colors[y, x]
+        masked = ma.masked_array(raw.raw_image_visible, raw_colors!=raw_color)
+        return masked[y-2:y+3,x-2:x+3].copy()
+    
+    bad_pixels = np.loadtxt(badPixelsTestPath, int)
+    i = 60
+    y, x = bad_pixels[i,0], bad_pixels[i,1]
+    
+    for useOpenCV in [False,True]:
+        if useOpenCV:
+            if rawpy.enhance.cv2 is None:
+                print('OpenCV not available, skipping subtest')
+                continue
+            print('testing with OpenCV')
+        else:
+            print('testing without OpenCV')
+            oldCv = rawpy.enhance.cv2
+            rawpy.enhance.cv2 = None
+            
+        for repair in [_repair_bad_pixels_generic, _repair_bad_pixels_bayer2x2]:
+            print('testing ' + repair.__name__)
+            raw = rawpy.imread(rawTestPath)
+            
+            before = getColorNeighbors(raw, y, x)
+            repair(raw, bad_pixels, method='median')
+            after = getColorNeighbors(raw, y, x)
+        
+            print(before)
+            print(after)
+        
+            # check that the repaired value is the median of the 5x5 neighbors
+            assert_equal(int(ma.median(before)), raw.raw_image_visible[y,x],
+                         'median wrong for ' + repair.__name__)
+        if not useOpenCV:
+            rawpy.enhance.cv2 = oldCv
+
+def testVisibleSize():
+    for path in [rawTestPath, raw2TestPath]:
+        print('testing', path)
+        raw = rawpy.imread(path)
+        s = raw.sizes
+        print(s)
+        h,w = raw.raw_image_visible.shape
+        assert_equal(h, s.height)
+        assert_equal(w, s.width)
+        h,w = raw.raw_colors_visible.shape
+        assert_equal(h, s.height)
+        assert_equal(w, s.width)
+
+def testFindBadPixelsNikonD4():
+    # crashed with "AssertionError: horizontal margins are not symmetric"
+    find_bad_pixels([raw2TestPath])
+
+def testNikonD4Size():
+    if rawpy.libraw_version < (0,15):
+        # older libraw/dcraw versions don't support D4 fully
+        return
+    raw = rawpy.imread(raw2TestPath)
+    s = raw.sizes
+    assert_equal(s.width, 4940)
+    assert_equal(s.height, 3292)
+    assert_equal(s.top_margin, 0)
+    assert_equal(s.left_margin, 2)
+    
+def testSegfaultBug():
+    # https://github.com/neothemachine/rawpy/issues/7
+    im = rawpy.imread(rawTestPath).raw_image
+    assert_array_equal(im.shape, [2844, 4288])
+    print(im)
+    
+    
+def save(path, im):
+    # both imageio and skimage currently save uint16 images with 180deg rotation
+    # as they both use freeimage and this has some weird internal formats
+    # see https://github.com/scikit-image/scikit-image/issues/1101
+    # and https://github.com/imageio/imageio/issues/3
+    from distutils.version import StrictVersion
+    if im.dtype == np.uint16 and StrictVersion(imageio.__version__) <= StrictVersion('0.5.1'):
+        im = im[::-1,::-1]
+    imageio.imsave(path, im)
+
+def print_stats(rgb):
+    # np.min supports axis tuple from 1.10
+    from distutils.version import StrictVersion
+    if StrictVersion(np.__version__) <= StrictVersion('1.10'):
+        return
+    print(rgb.dtype, 
+          np.min(rgb, axis=(0,1)), np.max(rgb, axis=(0,1)), # range for each channel
+          [len(np.unique(rgb[:,:,0])), len(np.unique(rgb[:,:,1])), len(np.unique(rgb[:,:,2]))], # unique values
+          np.sum(rgb==np.iinfo(rgb.dtype).max, axis=(0,1))) # number of saturated pixels
+        
+if __name__ == '__main__':
+    testVersion()
+    #testFileOpenAndPostProcess()
+    #testBadPixelRepair()
+    testFindBadPixelsNikonD4()
+    

@@ -1,0 +1,77 @@
+#!/usr/bin/env python
+
+import os
+import pypandoc
+
+# Notes for the not-an-everyday-python-dev for package distribution on pypi
+#
+# Build the package using `setuptools`:
+#
+#     python setup.py sdist bdist_wheel
+#
+# Make sure you have ~/.pypirc correctly populated, as of today should look something like:
+#
+#     [distutils]
+#     index-servers =
+#         pypi
+#         testpypi
+#
+#     [pypi]
+#     username: username-here
+#     password: password-here
+#
+#     [testpypi]
+#     repository: https://test.pypi.org/legacy/
+#     username: username-here (not necessarily same as real pypi)
+#     password: password-here (not necessarily same as real pypi)
+#
+# Then upload using twine to testpypi first:
+#
+#     twine upload -r testpypi dist/*
+#
+# If all looks good go ahead and tag the repo, push to GH, and then push to real
+# pypi:
+#
+#     twine upload dist/*
+#
+# Congratulations to me, I've just condensed so many webpages into 30 lines,
+# :raised_hands:!
+
+try:
+    from setuptools import setup
+except ImportError:
+    from ez_setup import use_setuptools
+    use_setuptools()
+    from setuptools import setup
+
+long_description = 'This library provides the python client for the Packet API.'
+if os.path.isfile('README.md') and os.path.isfile('CHANGELOG.md'):
+    readme = pypandoc.convert_file('README.md', 'rst')
+    changelog = pypandoc.convert_file('CHANGELOG.md', 'rst')
+    long_description = readme + '\n' + changelog
+
+setup(
+    name='packet-python',
+    version='1.37.1',
+    description='Packet API client',
+    long_description=long_description,
+    url='https://github.com/packethost/packet-python',
+    author='Packet Developers',
+    license='LGPL v3',
+    keywords='packet api client',
+    packages=['packet'],
+    install_requires='requests',
+    setup_requires='pypandoc',
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Developers',
+        'Intended Audience :: Information Technology',
+        'License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+    ])

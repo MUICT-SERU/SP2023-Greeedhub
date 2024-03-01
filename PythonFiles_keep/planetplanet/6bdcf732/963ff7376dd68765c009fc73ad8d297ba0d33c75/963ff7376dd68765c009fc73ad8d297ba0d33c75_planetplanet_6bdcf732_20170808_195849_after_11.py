@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+'''
+transit.py
+----------
+
+A simple transit light curve.
+
+'''
+
+from __future__ import division, print_function, absolute_import, unicode_literals
+import os, sys
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from planetplanet.photo import Planet, Star, System
+from planetplanet.constants import *
+import matplotlib.pyplot as pl
+import numpy as np
+
+# Instantiate the star
+star = Star('star', m = 0.1, r = 0.1, nz = 31, color = 'k', limbdark = [0.4, 0.26])
+
+# Planet b
+planet = Planet('planet', m = 1, per = 0.5, inc = 90.4, r = 2., t0 = 0, 
+                nz = 1, Omega = 0, w = 0., ecc = 0., phasecurve = False)
+
+# Compute the light curve, no optimization
+system = System(star, planet, batmanopt = False)
+time = np.arange(-0.025, 0.025, 0.1 * MINUTE)
+system.compute(time, lambda1 = 0.5, lambda2 = 2.)
+flux1 = system.star.flux[:,0] / system.star.flux[0,0]
+
+# Plot it
+system.plot_occultation('star', 0, nz = 51, draw_ellipses = False, spectral = False, 
+                        draw_outline = False, draw_terminator = False)
+
+# Compute the light curve w/ batman optimization
+system = System(star, planet, batmanopt = True)
+system.compute(time, lambda1 = 0.5, lambda2 = 2.)
+flux2 = system.star.flux[:,0] / system.star.flux[0,0]
+
+# Plot it
+fig = pl.figure()
+pl.plot(system.star.time, flux1, label = 'Standard')
+pl.plot(system.star.time, flux2, '--', label = 'Batman')
+pl.legend()
+pl.show()

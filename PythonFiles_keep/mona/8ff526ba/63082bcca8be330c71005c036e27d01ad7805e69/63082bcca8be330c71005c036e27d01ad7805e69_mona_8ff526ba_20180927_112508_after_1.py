@@ -1,0 +1,206 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+import logging
+import warnings
+from contextlib import contextmanager
+from typing import Set, Any, Dict, Callable, Optional, \
+    TypeVar, Iterator, NamedTuple, cast, Iterable, List, Tuple
+
+from .futures import CafError
+from .hashing import Hash, Hashed, HashedCompositeLike
+from .tasks import Task, HashedFuture, State, maybe_hashed, FutureNotDone
+from .graph import traverse
+from .utils import Literal, split
+
+log = logging.getLogger(__name__)
+
+_T = TypeVar('_T')
+
+
+class NoActiveSession(CafError):
+    pass
+
+
+class ArgNotInSession(CafError):
+    pass
+
+
+class DependencyCycle(CafError):
+    pass
+
+
+class Graph(NamedTuple):
+    deps: Dict[Hash, Set[Hash]]
+    side_effects: Dict[Hash, Set[Hash]]
+    backflow: Dict[Hash, Set[Hash]]
+
+
+class Session:
+    _active: Optional['Session'] = None
+
+    def __init__(self) -> None:
+        self._tasks: Dict[Hash, Task[Any]] = {}
+        self._objects: Dict[Hash, Hashed[Any]] = {}
+        self._graph = Graph({}, {}, {})
+        self._task_tape: Optional[Callable[[Task[Any]], None]] = None
+        self.storage: Dict[str, Any] = {}
+
+    def __enter__(self) -> 'Session':
+        assert Session._active is None
+        Session._active = self
+        return self
+
+    def _filter_tasks(self, cond: Callable[[Task[Any]], bool]) -> List[Task[Any]]:
+        return list(filter(cond, self._tasks.values()))
+
+    def __exit__(self, exc_type: Any, *args: Any) -> None:
+        Session._active = None
+        if exc_type is None:
+            tasks_not_run = self._filter_tasks(lambda t: t.state < State.HAS_RUN)
+            if tasks_not_run:
+                warnings.warn(
+                    f'tasks were never run: {tasks_not_run}', RuntimeWarning
+                )
+        self._tasks.clear()
+        self._objects.clear()
+        self._graph = Graph({}, {}, {})
+        self.storage.clear()
+
+    @contextmanager
+    def record(self, tape: Callable[[Task[Any]], None]) -> Iterator[None]:
+        self._task_tape = tape
+        try:
+            yield
+        finally:
+            self._task_tape = None
+
+    def _process_objects(self, objs: Iterable[Hashed[Any]], *, save: bool
+                         ) -> List[Task[Any]]:
+        objs = list(traverse(
+            objs,
+            lambda o: (
+                o.components
+                if isinstance(o, HashedCompositeLike)
+                else cast(Iterable[Hashed[Any]], o.parents)
+                if isinstance(o, HashedFuture)
+                else []
+            ),
+            lambda o: isinstance(o, Task)
+        ))
+        tasks, objs = cast(
+            Tuple[List[Task[Any]], List[Hashed[Any]]],
+            split(objs, lambda o: isinstance(o, Task))
+        )
+        for task in tasks:
+            if task.hashid not in self._tasks:
+                raise ArgNotInSession(repr(task))
+        if save:
+            self._objects.update({o.hashid: o for o in objs})
+        return tasks
+
+    def create_task(self, func: Callable[..., _T], *args: Any,
+                    label: str = None) -> Task[_T]:
+        task = Task(func, *args, label=label)
+        try:
+            task = self._tasks[task.hashid]
+        except KeyError:
+            pass
+        else:
+            return task
+        finally:
+            if self._task_tape is not None:
+                self._task_tape(task)
+        task.register()
+        self._tasks[task.hashid] = task
+        tasks = self._process_objects(task.args, save=True)
+        self._graph.deps[task.hashid] = set(t.hashid for t in tasks)
+        return task
+
+    def run_task(self, task: Task[_T]) -> Iterable[Task[Any]]:
+        assert task.state is State.READY
+        log.info(f'{task}: will run')
+        args = [
+            arg.result() if isinstance(arg, HashedFuture) else arg.value
+            for arg in task.args
+        ]
+        with self.record(task.add_side_effect):
+            result = task.func(*args)
+        if task.side_effects:
+            self._graph.side_effects[task.hashid] = \
+                set(created_task.hashid for created_task in task.side_effects)
+            log.debug(
+                f'{task}: created children: '
+                f'{list(map(Literal, task.side_effects))}'
+            )
+        hashed = maybe_hashed(result)
+        if hashed is None:
+            if task.has_hook():
+                raise CafError(f'{task} has hook and unhashable result {result}')
+            task.set_result(result)
+            return ()
+        if task.has_hook():
+            hashed = task.run_hook(hashed)
+        if not isinstance(hashed, HashedFuture):
+            task.set_result(hashed)
+        else:
+            fut = hashed
+            if fut.done():
+                task.set_result(fut.result())
+            else:
+                log.debug(f'{task}: has run, pending: {fut}')
+                task.set_future_result(fut)
+                fut.add_done_callback(lambda fut: task.set_result(fut.result()))
+                fut.register()
+        backflow = self._process_objects([hashed], save=True)
+        self._graph.backflow[task.hashid] = set(t.hashid for t in backflow)
+        return backflow
+
+    def eval(self, obj: Any, depth: bool = False, eager_traverse: bool = False
+             ) -> Any:
+        fut = maybe_hashed(obj)
+        if not isinstance(fut, HashedFuture):
+            return obj
+        fut.register()
+        traverse(
+            self._process_objects([fut], save=False),
+            lambda task: (self._tasks[h] for h in self._graph.deps[task.hashid]),
+            lambda task: task.state > State.READY,
+            lambda task, reg: task.add_ready_callback(lambda t: reg((t,))),
+            lambda task, reg: reg(task, self.run_task(task)),
+            depth,
+            eager_traverse,
+        )
+
+        try:
+            return fut.result()
+        except FutureNotDone as e:
+            tasks_not_done = self._filter_tasks(lambda t: not t.done())
+            if tasks_not_done:
+                raise DependencyCycle(tasks_not_done) from e
+            raise
+
+    def dot_graph(self, *args: Any, **kwargs: Any) -> Any:
+        from graphviz import Digraph  # type: ignore
+
+        dot = Digraph(*args, **kwargs)
+        for child, parents in self._graph.deps.items():
+            dot.node(child, repr(Literal(self._tasks[child])))
+            for parent in parents:
+                dot.edge(child, parent)
+        for origin, tasks in self._graph.side_effects.items():
+            for task in tasks:
+                dot.edge(origin, task, style='dotted')
+        for target, tasks in self._graph.backflow.items():
+            for task in tasks:
+                dot.edge(
+                    task, target,
+                    style='tapered', penwidth='7', dir='back', arrowtail='none'
+                )
+        return dot
+
+    @classmethod
+    def active(cls) -> 'Session':
+        if cls._active is None:
+            raise NoActiveSession()
+        return cls._active

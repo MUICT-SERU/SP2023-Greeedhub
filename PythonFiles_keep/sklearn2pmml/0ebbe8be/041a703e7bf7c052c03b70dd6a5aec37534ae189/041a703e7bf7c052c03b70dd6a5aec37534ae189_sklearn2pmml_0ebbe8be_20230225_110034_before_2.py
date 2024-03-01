@@ -1,0 +1,136 @@
+from pandas import DataFrame
+from sklearn.base import clone
+from sklearn.datasets import load_iris
+from sklearn.dummy import DummyClassifier
+from sklearn.linear_model import ElasticNet, LinearRegression, LogisticRegression, SGDClassifier, SGDRegressor
+from sklearn.svm import LinearSVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn2pmml.ensemble import _checkLM, _checkLR, _extract_step_params, _mask_params, EstimatorChain, Link, SelectFirstClassifier, SelectFirstRegressor
+from unittest import TestCase
+
+import numpy
+
+class GBDTLRTest(TestCase):
+
+	def test_lm(self):
+		_checkLM(ElasticNet())
+		_checkLM(LinearRegression())
+		_checkLM(SGDRegressor())
+
+	def test_lr(self):
+		_checkLR(LinearSVC())
+		_checkLR(LogisticRegression())
+		_checkLR(SGDClassifier())
+
+class EstimatorChainTest(TestCase):
+
+	def test_fit_predict(self):
+		df = DataFrame([[-1, 0], [0, 0], [-1, -1], [1, 1], [-1, -1]], columns = ["X", "y"])
+		X = df[["X"]]
+		y = df["y"]
+		steps = [
+			("negative", DummyClassifier(strategy = "most_frequent"), "X[0] < 0"),
+			("not_negative", DummyClassifier(strategy = "most_frequent"), "X[0] >= 0"),
+			("any", DummyClassifier(strategy = "most_frequent"), str(True))
+		]
+		estimator = EstimatorChain(steps, multioutput = True)
+		params = estimator.get_params(deep = True)
+		self.assertEqual("most_frequent", params["negative__strategy"])
+		self.assertEqual("most_frequent", params["not_negative__strategy"])
+		self.assertEqual("most_frequent", params["any__strategy"])
+		estimator.fit(X, y)
+		preds = estimator.predict(X)
+		self.assertEqual((5, 3), preds.shape)
+		self.assertEqual([-1, None, -1, None, -1], preds[:, 0].tolist())
+		self.assertEqual([None, 0, None, 0, None], preds[:, 1].tolist())
+		self.assertEqual([-1, -1, -1, -1, -1], preds[:, 2].tolist())
+		estimator = EstimatorChain(steps, multioutput = False)
+		estimator.fit(X, y)
+		preds = estimator.predict(X)
+		self.assertEqual((5, ), preds.shape)
+		self.assertEqual([-1, -1, -1, -1, -1], preds.tolist())
+
+	def test_complex_fit_predict(self):
+		X, y = load_iris(return_X_y = True)
+		classifier = Link(DecisionTreeClassifier(max_depth = 2, random_state = 13), augment_funcs = ["predict", "predict_proba"])
+		regressor = SelectFirstRegressor([
+			("not_setosa", LinearRegression(), "X[-3] < 0.5"),
+			("setosa", LinearRegression(), "X[-3] >= 0.5")
+		])
+		estimator = EstimatorChain([
+			("classifier", classifier, str(True)),
+			("regressor", regressor, str(True))
+		])
+		estimator.fit(X, y)
+		if hasattr(classifier.estimator_, "n_features_"):
+			self.assertEqual(4, classifier.estimator_.n_features_)
+		else:
+			self.assertEqual(4, classifier.estimator_.n_features_in_)
+		self.assertEqual((4 + (1 + 3), ), regressor.steps[0][1].coef_.shape)
+		self.assertEqual((4 + (1 + 3), ), regressor.steps[1][1].coef_.shape)
+		preds = estimator.predict(X)
+		self.assertEqual((150, 2), preds.shape)
+
+class SelectFirstClassifierTest(TestCase):
+
+	def test_fit_predict(self):
+		df = DataFrame([[-1, 0], [0, 0], [-1, -1], [1, 1], [-1, -1]], columns = ["X", "y"])
+		X = df[["X"]]
+		y = df["y"]
+		classifier = clone(SelectFirstClassifier([
+			("negative", DummyClassifier(strategy = "most_frequent"), "X[0] < 0"),
+			("positive", DummyClassifier(strategy = "most_frequent"), "X[0] > 0"),
+			("zero", DummyClassifier(strategy = "constant", constant = 0), str(True))
+		]))
+		params = classifier.get_params(deep = True)
+		self.assertEqual("most_frequent", params["negative__strategy"])
+		self.assertEqual("most_frequent", params["positive__strategy"])
+		self.assertEqual("constant", params["zero__strategy"])
+		self.assertEqual(0, params["zero__constant"])
+		classifier.fit(X, y)
+		preds = classifier.predict(X)
+		self.assertEqual((5, ), preds.shape)
+		self.assertEqual([-1, 0, -1, 1, -1], preds.tolist())
+		pred_probs = classifier.predict_proba(X)
+		self.assertEqual((5, 2), pred_probs.shape)
+
+class SelectFirstRegressorTest(TestCase):
+	pass
+
+class FunctionTest(TestCase):
+
+	def test_extract_step_params(self):
+		params = {
+			"gbdt__first" : 1,
+			"lr__first" : 1.0,
+			"gbdt__second" : 2,
+			"any__any" : None
+		}
+		gbdt_params = _extract_step_params("gbdt", params)
+		self.assertEqual({"first" : 1, "second" : 2}, gbdt_params)
+		self.assertEqual({"lr__first" : 1.0, "any__any" : None}, params)
+		lr_params = _extract_step_params("lr", params)
+		self.assertEqual({"first" : 1.0}, lr_params)
+		self.assertEqual({"any__any" : None}, params)
+
+	def test_mask_params(self):
+		params = {
+			"first" : numpy.asarray([[0], [1], [1], [2], [0]]),
+			"second" : numpy.asarray([[False, "A"], [False, "B"], [True, "C"], [False, "D"], [True, "E"]], dtype = object),
+			"any" : "any"
+		}
+		mask = numpy.full((5, ), True)
+		masked_params = _mask_params(params, mask)
+		self.assertTrue(params["first"].tolist(), masked_params["first"].tolist())
+		self.assertTrue(params["second"].tolist(), masked_params["second"].tolist())
+		self.assertTrue(params["any"], masked_params["any"])
+		mask = numpy.asarray([False, True, False, False, True], dtype = bool)
+		masked_params = _mask_params(params, mask)
+		self.assertEqual([[1], [0]], masked_params["first"].tolist())
+		self.assertEqual([[False, "B"], [True, "E"]], masked_params["second"].tolist())
+		self.assertEqual(params["any"], masked_params["any"])
+		mask = numpy.full((5, ), False)
+		masked_params = _mask_params(params, mask)
+		self.assertEqual([], masked_params["first"].tolist())
+		self.assertEqual([], masked_params["second"].tolist())
+		self.assertEqual(params["any"], masked_params["any"])

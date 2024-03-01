@@ -1,0 +1,3 @@
+# ebscopy config
+
+

@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+import asynctest
+import pytest
+from metadoc import Metadoc
+
+class MetadocModuleTest(asynctest.TestCase):
+  def setUp(self):
+    self.url = "https://theintercept.com/2016/11/26/laura-ingraham-lifezette/"
+    article_path = "tests/fixtures/theintercept.com/laura-ingraham-lifezette.html"
+    with open(article_path, 'r') as article:
+      self.article_html=article.read()
+
+    self.metadoc = Metadoc(url=self.url, html=self.article_html)
+
+  @asynctest.ignore_loop
+  def test_init(self):
+    assert self.metadoc.url == self.url
+    assert self.metadoc.html == self.article_html
+
+  @asynctest.ignore_loop
+  def test_query_all(self):
+    result = self.metadoc.query()
+    assert result
+
+  @asynctest.ignore_loop
+  def test_extract(self):
+    self.metadoc.query("extract")
+    assert self.metadoc.extractor
+
+  @asynctest.ignore_loop
+  def test_social(self):
+    self.metadoc.query("social")
+    assert self.metadoc.activity
+
+  @asynctest.ignore_loop
+  def test_social_return(self):
+    result = self.metadoc.query("social", "social")
+    assert list(result.keys()) == ["url", "social", "__version__"]
+
+  @asynctest.ignore_loop
+  def test_domain(self):
+    self.metadoc.query("domain")
+    assert self.metadoc.domain
+
+  @asynctest.ignore_loop
+  def test_no_url_fail(self):
+    with pytest.raises(AttributeError):
+      Metadoc()
+
+  @asynctest.ignore_loop
+  def test_invalid_url_fail(self):
+      metadoc = Metadoc(url="https://theintercept.com/404/", html=None)
+      result = metadoc.query()
+      assert result["errors"][0] ==  "Requesting article body failed with 404 status code."
+
+  @asynctest.ignore_loop
+  def test_no_html(self):
+    metadoc = Metadoc(url=self.url)
+    metadoc.query()
+
+  @asynctest.ignore_loop
+  def test_check_result(self):
+      self.metadoc._check_result({})

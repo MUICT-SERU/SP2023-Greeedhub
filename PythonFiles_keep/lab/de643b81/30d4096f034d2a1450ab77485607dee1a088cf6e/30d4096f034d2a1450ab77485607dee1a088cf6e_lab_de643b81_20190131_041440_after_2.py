@@ -1,0 +1,93 @@
+import click
+import os
+import warnings
+import yaml
+
+from minio import Minio
+from urllib3.exceptions import MaxRetryError
+from lab.project import cli as lab_project
+from lab.experiment import cli as lab_experiment
+
+working_directory = os.getcwd()
+warnings.filterwarnings("ignore")
+
+
+@click.group()
+def cli():
+    """
+Bering's Machine Learning Lab
+
+Copyright 2019 Bering Limited. https://beringresearch.com
+"""
+    pass
+
+
+# Project
+cli.add_command(lab_project.lab_init)
+cli.add_command(lab_project.lab_push)
+
+# Experiment
+cli.add_command(lab_experiment.lab_run)
+cli.add_command(lab_experiment.lab_ls)
+cli.add_command(lab_experiment.lab_rm)
+
+
+# Lab configuration
+@click.group()
+def config():
+    pass
+
+
+@click.command('minio')
+@click.option('--tag', type=str, help='helpful minio host tag')
+@click.option('--endpoint', type=str, help='minio endpoint address')
+@click.option('--accesskey', type=str, help='minio access key')
+@click.option('--secretkey', type=str, help='minio secret key')
+def minio_config(tag, endpoint, accesskey, secretkey):
+    """ Configure the lab environment and setup remote file storage"""
+    home_dir = os.path.expanduser('~')
+    lab_dir = os.path.join(home_dir, '.lab')
+
+    # Test connection
+    if not os.path.exists(lab_dir):
+        os.makedirs(lab_dir)
+
+    try:
+        minioClient = Minio(endpoint,
+                            access_key=accesskey,
+                            secret_key=secretkey,
+                            secure=False)
+        minioClient.list_buckets()
+    except MaxRetryError:
+        click.secho('Cannot connect to minio instance. Check your credentials '
+                    'and hostname. Ensure that endpoint is not prefixed with'
+                    'http or https.', fg='red')
+        raise click.Abort()
+
+    # Create configuration
+    config = {'minio_endpoint': endpoint,
+              'minio_accesskey': accesskey,
+              'minio_secretkey': secretkey}
+
+    if os.path.exists(os.path.join(lab_dir, 'config.yaml')):
+        with open(os.path.join(lab_dir, 'config.yaml'), 'r') as file:
+            minio_config = yaml.safe_load(file)
+            if tag in minio_config.keys():
+                click.secho('Host tag '+tag+' already exists in your '
+                            'configuration. Try a different name.', fg='red')
+                raise click.Abort()
+
+            minio_config[tag] = config
+    else:
+        minio_config = {}
+        minio_config[tag] = config
+
+    with open(os.path.join(lab_dir, 'config.yaml'), 'w') as file:
+        yaml.safe_dump(minio_config, file, default_flow_style=False)
+
+
+cli.add_command(config)
+config.add_command(minio_config)
+
+if __name__ == '__main__':
+    cli()

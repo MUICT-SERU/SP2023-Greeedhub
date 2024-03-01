@@ -1,0 +1,316 @@
+"""
+Async and thread safe models for passing runtime context data.
+
+These contexts should never be directly mutated by the user.
+"""
+import os
+import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
+from typing import ContextManager, List, Optional, Set, Type, TypeVar, Union
+
+import pendulum
+from anyio.abc import BlockingPortal, CancelScope
+from pendulum.datetime import DateTime
+from pydantic import BaseModel, Field, PrivateAttr
+
+import prefect.logging.configuration
+import prefect.settings
+from prefect.blocks.storage import StorageBlock
+from prefect.client import OrionClient
+from prefect.exceptions import MissingContextError
+from prefect.flows import Flow
+from prefect.futures import PrefectFuture
+from prefect.orion.schemas.core import FlowRun, TaskRun
+from prefect.orion.schemas.states import State
+from prefect.settings import PREFECT_HOME, Profile, Settings
+from prefect.task_runners import BaseTaskRunner
+from prefect.tasks import Task
+
+T = TypeVar("T")
+
+
+class ContextModel(BaseModel):
+    """
+    A base model for context data that forbids mutation and extra data while providing
+    a context manager
+    """
+
+    # The context variable for storing data must be defined by the child class
+    __var__: ContextVar
+    _token: Token = PrivateAttr(None)
+
+    class Config:
+        allow_mutation = False
+        arbitrary_types_allowed = True
+        extra = "forbid"
+
+    def __enter__(self):
+        if self._token is not None:
+            raise RuntimeError(
+                "Context already entered. Context enter calls cannot be nested."
+            )
+        self._token = self.__var__.set(self)
+        return self
+
+    def __exit__(self, *_):
+        if not self._token:
+            raise RuntimeError(
+                "Asymmetric use of context. Context exit called without an enter."
+            )
+        self.__var__.reset(self._token)
+        self._token = None
+
+    @classmethod
+    def get(cls: Type[T]) -> Optional[T]:
+        return cls.__var__.get(None)
+
+    def copy(self, **kwargs):
+        """Remove the token on copy to avoid re-entrance errors"""
+        new = super().copy(**kwargs)
+        new._token = None
+        return new
+
+
+class RunContext(ContextModel):
+    """
+    The base context for a flow or task run. Data in this context will always be
+    available when `get_run_context` is called.
+
+    Attributes:
+        start_time: The time the run context was entered
+        client: The Orion client instance being used for API communication
+    """
+
+    start_time: DateTime = Field(default_factory=lambda: pendulum.now("UTC"))
+    client: OrionClient
+
+
+class FlowRunContext(RunContext):
+    """
+    The context for a flow run. Data in this context is only available from within a
+    flow run function.
+
+    Attributes:
+        flow: The flow instance associated with the run
+        flow_run: The API metadata for the flow run
+        task_runner: The task runner instance being used for the flow run
+        result_storage: A block to used to persist run state data
+        task_run_futures: A list of futures for task runs created within this flow run
+        subflow_states: A list of states for flow runs created within this flow run
+        sync_portal: A blocking portal for sync task/flow runs in an async flow
+        timeout_scope: The cancellation scope for flow level timeouts
+    """
+
+    flow: Flow
+    flow_run: FlowRun
+    task_runner: BaseTaskRunner
+    result_storage: StorageBlock
+
+    # Tracking created objects
+    task_run_futures: List[PrefectFuture] = Field(default_factory=list)
+    subflow_states: List[State] = Field(default_factory=list)
+
+    # The synchronous portal is only created for async flows for creating engine calls
+    # from synchronous task and subflow calls
+    sync_portal: Optional[BlockingPortal] = None
+    timeout_scope: Optional[CancelScope] = None
+
+    __var__ = ContextVar("flow_run")
+
+
+class TaskRunContext(RunContext):
+    """
+    The context for a task run. Data in this context is only available from within a
+    task run function.
+
+    Attributes:
+        task: The task instance associated with the task run
+        task_run: The API metadata for this task run
+        result_storage: A block to used to persist run state data
+    """
+
+    task: Task
+    task_run: TaskRun
+    result_storage: StorageBlock
+
+    __var__ = ContextVar("task_run")
+
+
+class TagsContext(ContextModel):
+    """
+    The context for `prefect.tags` management.
+
+    Attributes:
+        current_tags: A set of current tags in the context
+    """
+
+    current_tags: Set[str] = Field(default_factory=set)
+
+    @classmethod
+    def get(cls) -> "TagsContext":
+        # Return an empty `TagsContext` instead of `None` if no context exists
+        return cls.__var__.get(TagsContext())
+
+    __var__ = ContextVar("tags")
+
+
+class SettingsContext(ContextModel):
+    """
+    The context for a Prefect settings.
+
+    This allows for safe concurrent access and modification of settings.
+
+    Attributes:
+        profile: The profile that is in use.
+        settings: The complete settings model.
+    """
+
+    profile: Profile
+    settings: Settings
+
+    __var__ = ContextVar("settings")
+
+    def __hash__(self) -> int:
+        return hash(self.settings)
+
+    def __enter__(self):
+        """
+        Upon entrance, we ensure the home directory for the profile exists.
+        """
+        return_value = super().__enter__()
+
+        try:
+            os.makedirs(self.settings.value_of(PREFECT_HOME), exist_ok=True)
+        except OSError:
+            warnings.warn(
+                "Failed to create the Prefect home directory at "
+                f"{self.settings.value_of(PREFECT_HOME)}",
+                stacklevel=2,
+            )
+
+        return return_value
+
+
+def get_run_context() -> Union[FlowRunContext, TaskRunContext]:
+    """
+    Get the current run context from within a task or flow function.
+
+    Returns:
+        A `FlowRunContext` or `TaskRunContext` depending on the function type.
+
+    Raises
+        RuntimeError: If called outside of a flow or task run.
+    """
+    task_run_ctx = TaskRunContext.get()
+    if task_run_ctx:
+        return task_run_ctx
+
+    flow_run_ctx = FlowRunContext.get()
+    if flow_run_ctx:
+        return flow_run_ctx
+
+    raise MissingContextError(
+        "No run context available. You are not in a flow or task run context."
+    )
+
+
+def get_settings_context() -> SettingsContext:
+    """
+    Get the current settings context which contains profile information and the
+    settings that are being used.
+
+    Generally, the settings that are being used are a combination of values from the
+    profile and environment. See `prefect.settings.use_profile` for more details.
+    """
+    settings_ctx = SettingsContext.get()
+
+    if not settings_ctx:
+        raise MissingContextError("No settings context found.")
+
+    return settings_ctx
+
+
+@contextmanager
+def tags(*new_tags: str) -> Set[str]:
+    """
+    Context manager to add tags to flow and task run calls.
+
+    Tags are always combined with any existing tags.
+
+    Yields:
+        The current set of tags
+
+    Examples:
+        >>> from prefect import tags, task, flow
+        >>> @task
+        >>> def my_task():
+        >>>     pass
+
+        Run a task with tags
+
+        >>> @flow
+        >>> def my_flow():
+        >>>     with tags("a", "b"):
+        >>>         my_task()  # has tags: a, b
+
+        Run a flow with tags
+
+        >>> @flow
+        >>> def my_flow():
+        >>>     pass
+        >>> with tags("a", b"):
+        >>>     my_flow()  # has tags: a, b
+
+        Run a task with nested tag contexts
+
+        >>> @flow
+        >>> def my_flow():
+        >>>     with tags("a", "b"):
+        >>>         with tags("c", "d"):
+        >>>             my_task()  # has tags: a, b, c, d
+        >>>         my_task()  # has tags: a, b
+
+        Inspect the current tags
+
+        >>> @flow
+        >>> def my_flow():
+        >>>     with tags("c", "d"):
+        >>>         with tags("e", "f") as current_tags:
+        >>>              print(current_tags)
+        >>> with tags("a", "b"):
+        >>>     my_flow()
+        {"a", "b", "c", "d", "e", "f"}
+    """
+    current_tags = TagsContext.get().current_tags
+    new_tags = current_tags.union(new_tags)
+    with TagsContext(current_tags=new_tags):
+        yield new_tags
+
+
+GLOBAL_SETTINGS_CM: ContextManager[SettingsContext] = None
+
+
+def enter_root_settings_context():
+    """
+    Enter the profile that will exist as the root context for the module.
+
+    We do not initialize this profile so there are no logging/file system side effects
+    on module import. Instead, the profile is initialized lazily in `prefect.engine`.
+
+    This function is safe to call multiple times.
+    """
+    # We set a global variable because otherwise the context object will be garbage
+    # collected which will call __exit__ as soon as this function scope ends.
+    global GLOBAL_SETTINGS_CM
+
+    if GLOBAL_SETTINGS_CM:
+        return  # A global context already has been entered
+
+    profiles = prefect.settings.load_profiles()
+
+    GLOBAL_SETTINGS_CM = prefect.settings.use_profile(profiles.active_profile)
+
+    global_profile = GLOBAL_SETTINGS_CM.__enter__()
+
+    prefect.logging.configuration.setup_logging(global_profile.settings)

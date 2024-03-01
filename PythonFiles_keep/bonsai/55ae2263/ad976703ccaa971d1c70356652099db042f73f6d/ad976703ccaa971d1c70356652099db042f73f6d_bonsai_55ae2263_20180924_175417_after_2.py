@@ -1,0 +1,373 @@
+# Copyright (c) 2017 Davide Laezza
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+###############################################################################
+# Imports
+###############################################################################
+
+from bonsai.model import *
+from bonsai.py import parentheses
+
+###############################################################################
+# Language Model
+###############################################################################
+
+PyEntity = CodeEntity
+
+PyStatementGroup = CodeStatementGroup
+
+# ----- Common Entities -------------------------------------------------------
+
+
+class PyModule(CodeGlobalScope):
+    def _add(self, codeobj):
+        # Unlike C++, pretty much anything can be defined at global level.
+        # The parent has an assertion that stands in the way
+        self.children.append(codeobj)
+
+
+# ----- Statement Entities ----------------------------------------------------
+
+PyJumpStatement = CodeJumpStatement
+
+
+class PyStatement(CodeStatement):
+    # No bare aliasing, need to override is_assignment
+    def __init__(self, scope, parent):
+        CodeStatement.__init__(self, scope, parent)
+
+    def is_assignment(self):
+        return isinstance(self, PyAssignment)
+
+
+class PyAssignment(PyStatement, CodeOperator):
+    def __init__(self, scope, parent, operator='=', args=(), result=None,
+                 paren=False):
+        CodeStatement.__init__(self, scope, parent)
+        CodeOperator.__init__(self, scope, parent, operator, result, args,
+                              paren)
+
+    @property
+    def is_assignment(self):
+        return True
+
+    @property
+    def is_binary(self):
+        return True
+
+    @property
+    def is_ternary(self):
+        return False
+
+    @property
+    def is_unary(self):
+        return False
+
+    def __repr__(self):
+        # Multiple targets are used like this (`a` and `b`): a = b = 1
+        targets = ' = '.join(map(repr, self.arguments[:-1]))
+        return '[{}] {} {} {!r}'.format(self.result, targets, self.name,
+                                        self.arguments[-1])
+
+    def pretty_str(self, indent=0):
+        # Multiple targets are used like this (`a` and `b`): a = b = 1
+        targets = ' = '.join(map(pretty_str, self.arguments[:-1]))
+        return '{}{} {} {}'.format(' ' * indent, targets, self.name,
+                                   pretty_str(self.arguments[-1]))
+
+
+class PyDelete(PyStatement):
+    def __init__(self, scope, parent, targets=()):
+        PyStatement.__init__(self, scope, parent)
+        self.targets = targets
+
+    def __repr__(self):
+        return '[del] {}'.format(', '.join(map(repr, self.targets)))
+
+    def _add(self, target):
+        self.targets = self.targets + (target,)
+
+    def _children(self):
+        for target in self.targets:
+            yield target
+
+    def pretty_str(self, indent=0):
+        targets = ', '.join(map(pretty_str, self.targets))
+        return '{}del {}'.format(' ' * indent, targets)
+
+
+class PyImport(PyStatement):
+    def __init__(self, scope, parent, modules=(), entities=(), level=None):
+        PyStatement.__init__(self, scope, parent)
+        self.modules = modules
+        self.entities = entities
+        self.level = level
+
+    @property
+    def is_absolute(self):
+        return self.level == 0
+
+    @property
+    def is_from(self):
+        return len(self.entities) > 0
+
+    @property
+    def is_wildcard(self):
+        return self.entities and self.entities[0] == '*'
+
+    def _add_module(self, module):
+        assert not self.is_from
+
+        self.modules = self.modules + (module,)
+
+    def _add_entity(self, entity):
+        assert not self.is_wildcard
+
+        self.entities = self.entities + (entity,)
+
+    def _children(self):
+        for module in self.modules:
+            if isinstance(module, CodeEntity):
+                yield module
+
+        for entity in self.entities:
+            if isinstance(entity, CodeEntity):
+                yield entity
+
+    def __repr__(self):
+        if self.entities:
+            # . as a module name is None
+            module = '{}{}'.format('.' * self.level, self.modules[0] or '')
+            entities = ', '.join(
+                    '{}->({!r})'.format(module, entity)
+                    for entity in self.entities
+            )
+            return '[import] {}'.format(entities)
+
+        modules = ', '.join(map(repr, self.modules))
+        return 'import {}'.format(modules)
+
+    def pretty_str(self, indent=0):
+        indent = ' ' * indent
+
+        if self.entities:
+            entities = ', '.join(map(pretty_str, self.entities))
+            # . as a module name is None
+            module = '{}{}'.format('.' * self.level, self.modules[0] or '')
+            return '{}import {} from {}'.format(indent, entities, module)
+
+        modules = ', '.join(map(pretty_str, self.modules))
+        return '{}import {}'.format(indent, modules)
+
+
+class PyAlias(PyStatement):
+    def __init__(self, scope, parent, name, alias):
+        PyStatement.__init__(self, scope, parent)
+        self.name = name
+        self.alias = alias
+
+    def _children(self):
+        return iter(())
+
+    def __repr__(self):
+        return '[alias] {} => {}'.format(self.alias, self.name)
+
+    def pretty_str(self, indent=0):
+        return '{}{} as {}'.format(' ' * indent, self.name, self.alias)
+
+
+# ----- Expression Entities ---------------------------------------------------
+
+PyExpression = CodeExpression
+
+PyExpressionStatement = CodeExpressionStatement
+
+PyReference = CodeReference
+
+PyVariable = CodeVariable
+
+PyNull = CodeNull
+
+
+# class PyLambda(PyExpression):
+#     NAME = '(lambda)'
+#     TYPE = 'lambda'
+#
+#     def __init__(self, scope, parent, paren=False):
+#       PyExpression.__init__(self, scope, parent, self.NAME, self.TYPE, paren)
+
+
+class PyOperator(CodeOperator, PyExpression):
+    _UNARY_TOKENS = ('~', 'not', '+', '-')
+
+    _BINARY_TOKENS = ('and', 'or', '+', '-', '*', '/', '//', '%', '**', '<<',
+                      '>>', '|', '^', '&', 'in', 'not in', 'is', 'is not')
+
+    def __init__(self, scope, parent, name, args=None, result=None,
+                 from_compare=False, paren=False):
+        CodeOperator.__init__(self, scope, parent, name, result,
+                              args=args, paren=paren)
+        self.from_compare = from_compare
+
+    @property
+    def is_assignment(self):
+        return False
+
+    def __repr__(self):
+        return ('[{0}] if({2})then({1})else({3})'.format(self.result,
+                                                         *self.arguments)
+                if self.is_ternary
+                else CodeOperator.__repr__(self))
+
+    def pretty_str(self, indent=0):
+        if self.is_ternary:
+            return 'if {1} then {0} else {2}'.format(*self.arguments)
+
+        if self.name == 'not':
+            return 'not {}'.format(*self.arguments)
+
+        return CodeOperator.pretty_str(self, indent=indent)
+
+
+class PyFunctionCall(CodeFunctionCall, PyExpression):
+    def __init__(self, scope, parent, name, pos_args=(), named_args=(),
+                 star_args=None, kw_args=None, result=None, paren=False):
+        CodeFunctionCall.__init__(self, scope, parent, name, result, paren)
+
+        for arg in pos_args:
+            self._add(arg)
+
+        self.named_args = named_args
+        self.star_args = star_args
+        self.kw_args = kw_args
+
+    def pretty_str(self, indent=0):
+        args = filter(lambda s: s != '', (
+            ', '.join(map(pretty_str, self.arguments)),
+            ', '.join(map(pretty_str, self.named_args)),
+            ('*{}'.format(pretty_str(self.star_args))
+                if self.star_args is not None
+                else ''),
+            ('**{}'.format(pretty_str(self.kw_args))
+                if self.kw_args is not None
+                else ''),
+        ))
+
+        name = ('{}.{}'.format(pretty_str(self.method_of), self.name)
+                if self.method_of is not None
+                else self.name)
+
+        return '{}({})'.format(name, ', '.join(args))
+
+
+class PyComprehension(PyExpression):
+    name_suffix_length = len('-comprehension')
+
+    def __init__(self, scope, parent, name, expr, iters, result=None,
+                 paren=False):
+        PyExpression.__init__(self, scope, parent, name, result, paren)
+        self.expr = expr
+        self.iters = iters
+
+    def _children(self):
+        yield self.expr
+
+        for iter in self.iters:
+            yield iter
+
+    def pretty_str(self, indent=0):
+        parens = parentheses[self.name[0:-self.name_suffix_length]]
+        iters = '\n'.join(
+            pretty_str(iter, indent + 4)
+            for iter in self.iters
+        )
+
+        return '{open}\n{exp}\n{iters}\n{indent}{close}'.format(
+                open=parens[0], exp=pretty_str(self.expr, indent=indent + 4),
+                iters=iters, indent=' ' * indent, close=parens[1]
+        )
+
+
+class PyComprehensionIterator(PyExpression):
+    def __init__(self, parent, target, iter, filters=()):
+        assert(isinstance(parent, PyComprehension))
+        PyExpression.__init__(self, parent, parent, 'comprehension-iterator',
+                              None)
+        self.target = target
+        self.iter = iter
+        self.filters = filters
+
+    def _children(self):
+        yield self.target
+        yield self.iter
+
+        for filter in self.filters:
+            yield filter
+
+    def pretty_str(self, indent=0):
+        indent = ' ' * indent
+
+        filters = (''
+                   if not self.filters
+                   else '\n' + '\n'.join(
+                       '{}if {}'.format(indent, pretty_str(cond))
+                       for cond in self.filters)
+                   )
+
+        return '{}for {} in {}{}'.format(indent,
+                                         pretty_str(self.target),
+                                         pretty_str(self.iter),
+                                         filters)
+
+
+class PyKeyValue(PyExpression):
+    def __init__(self, scope, parent, name, value=None, result=None):
+        PyExpression.__init__(self, scope, parent, name, result, False)
+        self.value = value
+
+    def _children(self):
+        if isinstance(self.name, CodeEntity):
+            yield self.name
+
+        if isinstance(self.value, CodeEntity):
+            yield self.value
+
+    def __repr__(self):
+        return '[{}] {!r}: {!r}'.format(self.result, self.name, self.value)
+
+    def pretty_str(self, indent=0):
+        return '{}{}: {}'.format(' ' * indent, pretty_str(self.name),
+                                 pretty_str(self.value))
+
+
+class PyCompositeLiteral(CodeCompositeLiteral):
+    def __init__(self, scope, parent, result, value=(), paren=False):
+        CodeCompositeLiteral.__init__(self, scope, parent, result, value,
+                                      paren)
+
+    def pretty_str(self, indent=0):
+        indent = ' ' * indent
+        parens = parentheses[self.result]
+        values = ', '.join(map(pretty_str, self.values))
+        vals = '{open}{values}{close}'.format(
+                open=parens[0], values=values, close=parens[1])
+
+        return ('{}({})' if self.parenthesis else '{}{}').format(indent, vals)
+

@@ -1,0 +1,2 @@
+class RequiredKeyIsNotSatisfied(Exception):
+    pass

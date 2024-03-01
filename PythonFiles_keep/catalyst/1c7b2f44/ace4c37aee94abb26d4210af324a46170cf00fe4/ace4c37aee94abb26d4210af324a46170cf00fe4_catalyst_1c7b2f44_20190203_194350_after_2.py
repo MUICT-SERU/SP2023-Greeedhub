@@ -1,0 +1,50 @@
+from typing import Dict
+
+
+class Callback:
+    """
+    An abstract class that all callback(e.g., Logger) classes extends from.
+    Must be extended before usage.
+
+    usage example:
+
+    mode start (train/infer/debug)
+        epoch start (one epoch - one run of every loader)
+            loader start
+                batch start
+                batch handler
+                batch end
+            loader end
+        epoch end
+    mode end
+    """
+
+    def on_mode_start(self, state):
+        pass
+
+    def on_mode_end(self, state):
+        pass
+
+    def on_stage_start(self, state):
+        pass
+
+    def on_stage_end(self, state):
+        pass
+
+    def on_epoch_start(self, state):
+        pass
+
+    def on_epoch_end(self, state):
+        pass
+
+    def on_loader_start(self, state):
+        pass
+
+    def on_loader_end(self, state):
+        pass
+
+    def on_batch_start(self, state):
+        pass
+
+    def on_batch_end(self, state):
+        pass

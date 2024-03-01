@@ -1,0 +1,496 @@
+"""Module for the Routing System
+"""
+
+import cgi
+import importlib
+import json
+from pydoc import locate
+
+from config import middleware
+from masonite.exceptions import RouteMiddlewareNotFound, InvalidRouteCompileException
+
+
+class Route:
+    """Route class used to handle routing.
+    """
+
+    route_compilers = {
+        'int': r'(\d+)',
+        'integer': r'(\d+)', 
+        'string': r'([a-zA-Z]+)',
+        'default': r'([\w.-]+)'
+    }
+
+    def __init__(self, environ=None):
+        """Route constructor
+
+        Keyword Arguments:
+            environ {dict} -- WSGI environ (default: {None})
+        """
+
+        self.url_list = []
+
+        if environ:
+            self.environ = environ
+            self.url = environ['PATH_INFO']
+
+            if self.is_not_get_request():
+                self.environ['QUERY_STRING'] = self.set_post_params()
+
+    def load_environ(self, environ):
+        """Loads the WSGI environ into the class
+
+        Arguments:
+            environ {dict} -- WSGI environ
+
+        Returns:
+            self
+        """
+
+        self.environ = environ
+        self.url = environ['PATH_INFO']
+
+        if self.is_not_get_request():
+            self.environ['QUERY_STRING'] = self.set_post_params()
+
+        return self
+
+    def get(self, route, output=None):
+        """Returns the output
+
+        Arguments:
+            route {masonite.routes.BaseHttpRoute} -- The current route being executed.
+
+        Keyword Arguments:
+            output {string} -- Returns the output (default: {None})
+
+        Returns:
+            string
+        """
+
+        return output
+
+    def set_post_params(self):
+        """Returns the correct input
+
+        Returns:
+            dict -- Dictionary of post parameters.
+        """
+
+        fields = None
+        if self.is_not_get_request():
+            if 'CONTENT_TYPE' in self.environ and 'application/json' in self.environ['CONTENT_TYPE']:
+                try:
+                    request_body_size = int(
+                        self.environ.get('CONTENT_LENGTH', 0))
+                except (ValueError):
+                    request_body_size = 0
+
+                request_body = self.environ['wsgi.input'].read(
+                    request_body_size)
+                return {'payload': json.loads(request_body)}
+            else:
+                fields = cgi.FieldStorage(
+                    fp=self.environ['wsgi.input'], environ=self.environ, keep_blank_values=1)
+                return fields
+
+    def is_post(self):
+        """Check to see if the current request is a POST request.
+
+        Returns:
+            bool
+        """
+
+        if self.environ['REQUEST_METHOD'] == 'POST':
+            return True
+
+        return False
+
+    def is_not_get_request(self):
+        """Checks if current request is not a get request.
+
+        Returns:
+            bool
+        """
+
+        if not self.environ['REQUEST_METHOD'] == 'GET':
+            return True
+
+        return False
+
+    def compile_route_to_regex(self, route):
+        """Compiles the given route to a regex string
+
+        Arguments:
+            route {string} -- URI of the route to compile.
+
+        Returns:
+            string -- Compiled URI string.
+        """
+
+        # Split the route
+        split_given_route = route.route_url.split('/')
+
+        # compile the provided url into regex
+        url_list = []
+        regex = '^'
+        for regex_route in split_given_route:
+            if '@' in regex_route:
+                if ':' in regex_route:
+                    try:
+                        regex += self.route_compilers[regex_route.split(':')[
+                            1]]
+                    except KeyError:
+                        raise InvalidRouteCompileException(
+                            'Route compiler "{}" is not an available route compiler. ' \
+                            'Verify you spelled it correctly or that you have added it using the compile() method.'.format(
+                                regex_route.split(':')[1])
+                        )
+                else:
+                    regex += self.route_compilers['default']
+
+                regex += r'\/'
+
+                # append the variable name passed @(variable):int to a list
+                url_list.append(
+                    regex_route.replace('@', '').replace(
+                        ':int', '').replace(':string', '')
+                )
+            else:
+                regex += regex_route + r'\/'
+
+        self.url_list = url_list
+        regex += '$'
+        return regex
+
+    def compile(self, key, to=''):
+        self.route_compilers.update({key: to})
+        return self
+
+    def generated_url_list(self):
+        """Returns the URL list
+
+        Returns:
+            list -- URL list.
+        """
+
+        return self.url_list
+
+
+class BaseHttpRoute:
+    """Base route for HTTP routes.
+    """
+
+    method_type = 'GET'
+    output = False
+    route_url = None
+    request = None
+    named_route = None
+    required_domain = None
+    module_location = 'app.http.controllers'
+    list_middleware = None
+
+    def route(self, route, output):
+        """Loads the route into the class. This also looks for the controller and attaches it to the route.
+
+        Arguments:
+            route {string} -- This is a URI to attach to the route (/dashboard/user).
+            output {string|object} -- Controller to attach to the route.
+
+        Returns:
+            self
+        """
+
+        self._find_controller(output)
+        self.route_url = route
+        return self
+
+    def _find_controller(self, controller):
+        """Finds the controller to attach to the route.
+
+        Arguments:
+            controller {string|object} -- String or object controller to search for.
+
+        Returns:
+            None
+        """
+        # If the output specified is a string controller
+        if isinstance(controller, str):
+            mod = controller.split('@')
+            # If trying to get an absolute path via a string
+            if mod[0].startswith('/'):
+                self.module_location = '.'.join(
+                    mod[0].replace('/', '').split('.')[0:-1])
+
+        else:
+            if controller is None:
+                return None
+
+            fully_qualified_name = controller.__qualname__
+            mod = fully_qualified_name.split('.')
+            self.module_location = controller.__module__
+
+        # Gets the controller name from the output parameter
+        # This is used to add support for additional modules
+        # like 'LoginController' and 'Auth.LoginController'
+        get_controller = mod[0].split('.')[-1]
+
+        try:
+            # Import the module
+            if isinstance(controller, str):
+                module = importlib.import_module(
+                    '{0}.'.format(self.module_location) + get_controller)
+            else:
+                module = importlib.import_module(
+                    '{0}'.format(self.module_location))
+
+            # Get the controller from the module
+            self.controller = getattr(module, get_controller)
+
+            # Set the controller method on class. This is a string
+            self.controller_method = mod[1]
+
+        except Exception as e:
+            print('\033[93mWarning in routes/web.py!', e, '\033[0m')
+
+    def domain(self, domain):
+        """Sets the subdomain for the route.
+
+        Arguments:
+            domain {string|list|tuple} -- The string or list of subdomains to attach to this route.
+
+        Returns:
+            self
+        """
+
+        self.required_domain = domain
+        return self
+
+    def module(self, module):
+        """DEPRECATED :: The base module to look for string controllers
+
+        Arguments:
+            module {string} -- The string representation of a module to look for controllers.
+
+        Returns:
+            self
+        """
+
+        self.module_location = module
+        return self
+
+    def has_required_domain(self):
+        """Check if the route has the required subdomain before executing the route.
+
+        Returns:
+            bool
+        """
+
+        if self.request.has_subdomain() and (self.required_domain is '*' or self.request.subdomain == self.required_domain):
+            return True
+        return False
+
+    def name(self, name):
+        """Specifies the name of the route
+
+        Arguments:
+            name {string} -- Sets a name for the route.
+
+        Returns:
+            self
+        """
+
+        self.named_route = name
+        return self
+
+    def load_request(self, request):
+        """Load the request into this class
+
+        Arguments:
+            request {masonite.request.Request} -- Request object.
+
+        Returns:
+            self
+        """
+
+        self.request = request
+        return self
+
+    def middleware(self, *args):
+        """Loads a list of middleware to run
+
+        Returns:
+            self
+        """
+
+        for arg in args:
+            if arg not in self.list_middleware:
+                self.list_middleware.append(arg)
+
+        return self
+
+    def run_middleware(self, type_of_middleware):
+        """Run route middleware
+
+        Arguments:
+            type_of_middleware {string} -- Type of middleware to be ran (before|after)
+
+        Raises:
+            RouteMiddlewareNotFound -- Thrown when the middleware could not be found.
+        """
+
+        # Get the list of middleware to run for a route.
+        for arg in self.list_middleware:
+            middleware_to_run = self.request.app().make('RouteMiddleware')[arg]
+            if isinstance(middleware_to_run, str):
+                middleware_to_run = [middleware_to_run]
+
+            # Locate the middleware based on the string specified
+            try:
+                for middleware in middleware_to_run:
+                    located_middleware = self.request.app().resolve(locate(middleware))
+
+                    # If the middleware has the specific type of middleware
+                    # (before or after) then execute that
+                    if hasattr(located_middleware, type_of_middleware):
+                        getattr(located_middleware, type_of_middleware)()
+
+            except KeyError:
+                raise RouteMiddlewareNotFound(
+                    "Could not find the '{0}' route middleware".format(arg))
+
+
+class Get(BaseHttpRoute):
+    """Class for specifying GET requests
+    """
+
+    def __init__(self):
+        """Get constructor
+        """
+
+        self.method_type = 'GET'
+        self.list_middleware = []
+
+
+class Post(BaseHttpRoute):
+    """Class for specifying POST requests 
+    """
+
+    def __init__(self):
+        """Post constructor
+        """
+
+        self.method_type = 'POST'
+        self.list_middleware = []
+
+
+class Put(BaseHttpRoute):
+    """Class for specifying PUT requests 
+    """
+
+    def __init__(self):
+        """Put constructor
+        """
+
+        self.method_type = 'PUT'
+        self.list_middleware = []
+
+class Patch(BaseHttpRoute):
+    """Class for specifying Patch requests 
+    """
+
+    def __init__(self):
+        """Patch constructor
+        """
+
+        self.method_type = 'PATCH'
+        self.list_middleware = []
+
+class Delete(BaseHttpRoute):
+    """Class for specifying Delete requests 
+    """
+
+    def __init__(self):
+        """Delete constructor
+        """
+
+        self.method_type = 'DELETE'
+        self.list_middleware = []
+
+class RouteGroup():
+    """Class for specifying Route Groups
+    """
+
+    def __new__(self, routes=[], middleware=[], domain=[], prefix='', name=''):
+        """Called when this class is first called. This is to give the ability to return a value in the constructor.
+
+        Keyword Arguments:
+            routes {list} -- List of routes. (default: {[]})
+            middleware {list} -- List of middleware. (default: {[]})
+            domain {list} -- String or list of domains to attach to all the routes. (default: {[]})
+            prefix {str} -- Prefix to attach to all the route URI's. (default: {''})
+            name {str} -- Base name to attach to all the routes. (default: {''})
+
+        Returns:
+            list -- Returns a list of routes.
+        """
+
+        from masonite.helpers.routes import flatten_routes
+        self.routes = flatten_routes(routes)
+
+        if middleware:
+            self._middleware(self, *middleware)
+
+        if domain:
+            self._domain(self, domain)
+
+        if prefix:
+            self._prefix(self, prefix)
+
+        if name:
+            self._name(self, name)
+
+        return self.routes
+
+    def _middleware(self, *middleware):
+        """Attach middleware to all routes.
+
+        Returns:
+            list -- Returns list of routes.
+        """
+
+        for route in self.routes:
+            route.middleware(*middleware)
+
+        return self.routes
+
+    def _domain(self, domain):
+        """Attach a domain to all routes.
+
+        Arguments:
+            domain {str|list|tuple} -- List of domains to attach to all the routes.
+        """
+
+        for route in self.routes:
+            route.domain(domain)
+
+    def _prefix(self, prefix):
+        """Prefix a string to all domain URI's.
+
+        Arguments:
+            prefix {str} -- String to prefix to all Routes.
+        """
+
+        for route in self.routes:
+            route.route_url = prefix + route.route_url
+
+    def _name(self, name):
+        """Name to prefix to all routes.
+
+        Arguments:
+            name {str} -- String to prefix to all routes.
+        """
+
+        for route in self.routes:
+            if isinstance(route.named_route, str):
+                route.named_route = name + route.named_route

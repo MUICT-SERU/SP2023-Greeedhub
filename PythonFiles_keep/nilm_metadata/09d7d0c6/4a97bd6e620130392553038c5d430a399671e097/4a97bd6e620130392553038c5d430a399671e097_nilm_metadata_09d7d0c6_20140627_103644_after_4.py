@@ -1,0 +1,1 @@
+from object_concatenation import get_appliance_types

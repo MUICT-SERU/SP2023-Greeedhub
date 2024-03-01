@@ -1,0 +1,59 @@
+import pyblish.backend.lib
+import pyblish.backend.config
+import pyblish.backend.plugin
+
+import maya.cmds as cmds
+
+
+@pyblish.backend.lib.log
+class SelectObjectSet(pyblish.backend.plugin.Selector):
+    """Identify publishable instances via an associated identifier
+
+    The identifier is located within the Pyblish configuration
+    as `pyblish.backend.config.identifier` and is typically something
+    like "publishable".
+
+    Any node of type objectSet and containing this attribute will ba
+    deemed an instance capable of being published. Additionally,
+    the objectSet may contain a "family" attribute that will be
+    injected into the given instance.
+
+    Prerequisities:
+        INSTANCE is of type `objectSet`
+        Each INSTANCE MUST contain the attribute `publishable`
+        Each INSTANCE MUST contain the attribute `family`
+
+    """
+
+    hosts = ['maya']
+    version = (0, 1, 0)
+
+    def process_context(self, context):
+        for objset in cmds.ls("*." + pyblish.backend.config.identifier,
+                              objectsOnly=True,
+                              type='objectSet'):
+
+            instance = context.create_instance(name=objset)
+            self.log.info("Adding instance: {0}".format(objset))
+
+            for node in cmds.sets(objset, query=True):
+                if cmds.nodeType(node) == 'transform':
+                    descendents = cmds.listRelatives(node,
+                                                     allDescendents=True,
+                                                     fullPath=True)
+                    for descendent in descendents:
+                        instance.add(descendent)
+
+                instance.add(node)
+
+            attrs = cmds.listAttr(objset, userDefined=True)
+            for attr in attrs:
+                if attr == pyblish.backend.config.identifier:
+                    continue
+
+                try:
+                    value = cmds.getAttr(objset + "." + attr)
+                except:
+                    continue
+
+                instance.set_data(attr, value=value)

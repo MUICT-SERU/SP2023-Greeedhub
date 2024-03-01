@@ -1,0 +1,88 @@
+from typing import Any
+
+from graphql.type import (
+    GraphQLArgument,
+    GraphQLBoolean,
+    GraphQLField,
+    GraphQLInt,
+    GraphQLList,
+    GraphQLNonNull,
+    GraphQLObjectType,
+    GraphQLString,
+    Thunk
+)
+
+connection_args = {
+    'before': GraphQLArgument(GraphQLString),
+    'after': GraphQLArgument(GraphQLString),
+    'first': GraphQLArgument(GraphQLInt),
+    'last': GraphQLArgument(GraphQLInt),
+}
+
+
+def resolve_maybe_thunk(thing_or_thunk: Thunk) -> Any:
+    return thing_or_thunk() if callable(thing_or_thunk) else thing_or_thunk
+
+
+def connection_definitions(
+        name, node_type,
+        resolve_node=None, resolve_cursor=None,
+        edge_fields=None, connection_fields=None):
+    edge_fields = edge_fields or {}
+    connection_fields = connection_fields or {}
+    edge_type = GraphQLObjectType(
+        name + 'Edge',
+        description='An edge in a connection.',
+        fields=lambda: {
+            'node': GraphQLField(
+                node_type,
+                resolve=resolve_node,
+                description='The item at the end of the edge',
+            ),
+            'cursor': GraphQLField(
+                GraphQLNonNull(GraphQLString),
+                resolve=resolve_cursor,
+                description='A cursor for use in pagination',
+            ),
+            **resolve_maybe_thunk(edge_fields)})
+
+    connection_type = GraphQLObjectType(
+        name + 'Connection',
+        description='A connection to a list of items.',
+        fields=lambda: {
+            'pageInfo': GraphQLField(
+                GraphQLNonNull(page_info_type),
+                description='The Information to aid in pagination'
+            ),
+            'edges': GraphQLField(
+                GraphQLList(edge_type),
+                description='A list of edges.',
+            ),
+            **resolve_maybe_thunk(connection_fields)})
+
+    return edge_type, connection_type
+
+
+# The common page info type used by all connections.
+page_info_type = GraphQLObjectType(
+    'PageInfo',
+    description='Information about pagination in a connection.',
+    fields=lambda: {
+        'hasNextPage': GraphQLField(
+            GraphQLNonNull(GraphQLBoolean),
+            description='When paginating forwards, are there more items?',
+        ),
+        'hasPreviousPage': GraphQLField(
+            GraphQLNonNull(GraphQLBoolean),
+            description='When paginating backwards, are there more items?',
+        ),
+        'startCursor': GraphQLField(
+            GraphQLString,
+            description='When paginating backwards, the cursor to continue.',
+        ),
+        'endCursor': GraphQLField(
+            GraphQLString,
+            description='When paginating forwards, the cursor to continue.',
+        ),
+    }
+)

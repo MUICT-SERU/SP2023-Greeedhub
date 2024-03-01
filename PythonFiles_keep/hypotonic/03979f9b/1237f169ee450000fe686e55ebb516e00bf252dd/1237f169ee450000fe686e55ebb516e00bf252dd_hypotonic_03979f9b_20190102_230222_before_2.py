@@ -1,0 +1,110 @@
+import unittest
+import logging
+from hypotonic import Hypotonic
+
+logger = logging.getLogger('hypotonic')
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
+
+class TestHypotonic(unittest.TestCase):
+  def setUp(self):
+    self.hypotonic = Hypotonic()
+    self.hypotonic.get('http://books.toscrape.com/')
+
+  def test_find_with_xpath(self):
+    data = list(
+      self.hypotonic
+        .find(
+        '//*[contains(concat( " ", @class, " " ), concat( " ", "nav-list", " " ))]//ul//a')
+        .set('category')
+        .data())
+
+    self.assertEqual(50, len(data))
+    self.assertTrue({'category': 'Romance'} in data)
+
+  def test_find_with_css(self):
+    data = list(
+      self.hypotonic
+        .find('.nav-list ul a')
+        .set('category')
+        .data())
+
+    self.assertEqual(50, len(data))
+    self.assertIn({'category': 'Romance'}, data)
+
+  def test_set_with_str(self):
+    data = list(
+      self.hypotonic
+        .find('.h1 a')
+        .set('title')
+        .data())
+
+    self.assertEqual([{'title': 'Books to Scrape'}], data)
+
+  def test_set_with_dict(self):
+    data = list(
+      self.hypotonic
+        .find('li article')
+        .set({'title': 'h3 a',
+              'price': '.price_color',
+              'availability': 'p.availability'})
+        .data())
+
+    self.assertEqual(20, len(data))
+    self.assertIn({'title': 'Sharp Objects',
+                   'price': '£47.82',
+                   'availability': 'In stock'}, data)
+
+  def test_follow(self):
+    data = list(
+      self.hypotonic
+        .find('.product_pod h3 a')
+        .follow('@href')
+        .find('h1')
+        .set('title')
+        .data())
+
+    self.assertEqual(20, len(data))
+    self.assertIn({'title': 'Sharp Objects'}, data)
+
+  def test_paginate(self):
+    data = list(
+      self.hypotonic
+        .paginate('.next a', 3)
+        .find('li article')
+        .set({'title': 'h3 a'})
+        .data())
+
+    self.assertEqual(60, len(data))
+    self.assertIn({'title': 'Sharp Objects'}, data)
+    self.assertIn({'title': 'In Her Wake'}, data)
+    self.assertIn({'title': 'Thirst'}, data)
+
+  def test_filter(self):
+    data = list(
+      self.hypotonic
+        .find('li article')
+        .filter('.Five')
+        .set({'title': 'h3 a'})
+        .data())
+
+    self.assertEqual(4, len(data))
+    self.assertIn({'title': 'Set Me Free'}, data)
+    self.assertNotIn({'title': 'Sharp Objects'}, data)
+
+  def test_match(self):
+    data = list(
+      self.hypotonic
+        .find('.product_pod h3 a')
+        .match('[tT]he')
+        .set('title')
+        .data())
+
+    self.assertEqual(9, len(data))
+    self.assertIn({'title': 'Tipping the Velvet'}, data)
+    self.assertNotIn({'title': 'Sharp Objects'}, data)
+
+
+if __name__ == '__main__':
+  unittest.main()

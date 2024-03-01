@@ -1,0 +1,858 @@
+# Sebastian Raschka 2014-2022
+# mlxtend Machine Learning Library Extensions
+#
+# Algorithm for sequential feature selection.
+# Author: Sebastian Raschka <sebastianraschka.com>
+#
+# License: BSD 3 clause
+
+import datetime
+import sys
+import types
+from copy import deepcopy
+from itertools import combinations
+
+import numpy as np
+import scipy as sp
+import scipy.stats
+from joblib import Parallel, delayed
+from sklearn.base import MetaEstimatorMixin, clone
+from sklearn.metrics import get_scorer
+from sklearn.model_selection import cross_val_score
+
+from ..externals.name_estimators import _name_estimators
+from ..utils.base_compostion import _BaseXComposition
+
+
+def _merge_lists(nested_list, high_level_indices=None):
+    """
+    merge elements of lists (of a nested_list) into one single tuple with elements
+    sorted in ascending order.
+
+    Parameters
+    ----------
+    nested_list: List
+        a  list whose elements must be list as well.
+
+    high_level_indices: list or tuple, default None
+        a list or tuple that contains integers that are between 0 (inclusive) and
+        the length of `nested_lst` (exclusive). If None, the merge of all
+        lists nested in `nested_list` will be returned.
+
+    Returns
+    -------
+    out: tuple
+        a tuple, with elements sorted in ascending order, that is the merge of inner
+        lists whose indices are provided in `high_level_indices`
+
+    Example:
+    nested_list = [[1],[2, 3],[4]]
+    high_level_indices = [1, 2]
+    >>> _merge_lists(nested_list, high_level_indices)
+    (2, 3, 4) # merging [2, 3] and [4]
+    """
+    if high_level_indices is None:
+        high_level_indices = list(range(len(nested_list)))
+
+    out = []
+    for idx in high_level_indices:
+        out.extend(nested_list[idx])
+
+    return tuple(sorted(out))
+
+
+def _calc_score(
+    selector, X, y, indices, groups=None, feature_groups=None, **fit_params
+):
+    if feature_groups is None:
+        feature_groups = [[i] for i in range(X.shape[1])]
+
+    IDX = _merge_lists(feature_groups, indices)
+    if selector.cv:
+        scores = cross_val_score(
+            selector.est_,
+            X[:, IDX],
+            y,
+            groups=groups,
+            cv=selector.cv,
+            scoring=selector.scorer,
+            n_jobs=1,
+            pre_dispatch=selector.pre_dispatch,
+            fit_params=fit_params,
+        )
+    else:
+        selector.est_.fit(X[:, IDX], y, **fit_params)
+        scores = np.array([selector.scorer(selector.est_, X[:, IDX], y)])
+    return indices, scores
+
+
+def _get_featurenames(subsets_dict, feature_idx, custom_feature_names, X):
+    feature_names = None
+    if feature_idx is not None:
+        if custom_feature_names is not None:
+            feature_names = tuple((custom_feature_names[i] for i in feature_idx))
+        elif hasattr(X, "loc"):
+            feature_names = tuple((X.columns[i] for i in feature_idx))
+        else:
+            feature_names = tuple(str(i) for i in feature_idx)
+
+    subsets_dict_ = deepcopy(subsets_dict)
+    for key in subsets_dict_:
+        if custom_feature_names is not None:
+            new_tuple = tuple(
+                (custom_feature_names[i] for i in subsets_dict[key]["feature_idx"])
+            )
+        elif hasattr(X, "loc"):
+            new_tuple = tuple((X.columns[i] for i in subsets_dict[key]["feature_idx"]))
+        else:
+            new_tuple = tuple(str(i) for i in subsets_dict[key]["feature_idx"])
+        subsets_dict_[key]["feature_names"] = new_tuple
+
+    return subsets_dict_, feature_names
+
+
+class SequentialFeatureSelector(_BaseXComposition, MetaEstimatorMixin):
+
+    """Sequential Feature Selection for Classification and Regression.
+
+    Parameters
+    ----------
+    estimator : scikit-learn classifier or regressor
+    k_features : int or tuple or str (default: 1)
+        Number of features to select,
+        where k_features < the full feature set.
+        New in 0.4.2: A tuple containing a min and max value can be provided,
+            and the SFS will consider return any feature combination between
+            min and max that scored highest in cross-validation. For example,
+            the tuple (1, 4) will return any combination from
+            1 up to 4 features instead of a fixed number of features k.
+        New in 0.8.0: A string argument "best" or "parsimonious".
+            If "best" is provided, the feature selector will return the
+            feature subset with the best cross-validation performance.
+            If "parsimonious" is provided as an argument, the smallest
+            feature subset that is within one standard error of the
+            cross-validation performance will be selected.
+    forward : bool (default: True)
+        Forward selection if True,
+        backward selection otherwise
+    floating : bool (default: False)
+        Adds a conditional exclusion/inclusion if True.
+    verbose : int (default: 0), level of verbosity to use in logging.
+        If 0, no output,
+        if 1 number of features in current set, if 2 detailed logging i
+        ncluding timestamp and cv scores at step.
+    scoring : str, callable, or None (default: None)
+        If None (default), uses 'accuracy' for sklearn classifiers
+        and 'r2' for sklearn regressors.
+        If str, uses a sklearn scoring metric string identifier, for example
+        {accuracy, f1, precision, recall, roc_auc} for classifiers,
+        {'mean_absolute_error', 'mean_squared_error'/'neg_mean_squared_error',
+        'median_absolute_error', 'r2'} for regressors.
+        If a callable object or function is provided, it has to be conform with
+        sklearn's signature ``scorer(estimator, X, y)``; see
+        http://scikit-learn.org/stable/modules/generated/sklearn.metrics.make_scorer.html
+        for more information.
+    cv : int (default: 5)
+        Integer or iterable yielding train, test splits. If cv is an integer
+        and `estimator` is a classifier (or y consists of integer class
+        labels) stratified k-fold. Otherwise regular k-fold cross-validation
+        is performed. No cross-validation if cv is None, False, or 0.
+    n_jobs : int (default: 1)
+        The number of CPUs to use for evaluating different feature subsets
+        in parallel. -1 means 'all CPUs'.
+    pre_dispatch : int, or string (default: '2*n_jobs')
+        Controls the number of jobs that get dispatched
+        during parallel execution if `n_jobs > 1` or `n_jobs=-1`.
+        Reducing this number can be useful to avoid an explosion of
+        memory consumption when more jobs get dispatched than CPUs can process.
+        This parameter can be:
+        None, in which case all the jobs are immediately created and spawned.
+            Use this for lightweight and fast-running jobs,
+            to avoid delays due to on-demand spawning of the jobs
+        An int, giving the exact number of total jobs that are spawned
+        A string, giving an expression as a function
+            of n_jobs, as in `2*n_jobs`
+    clone_estimator : bool (default: True)
+        Clones estimator if True; works with the original estimator instance
+        if False. Set to False if the estimator doesn't
+        implement scikit-learn's set_params and get_params methods.
+        In addition, it is required to set cv=0, and n_jobs=1.
+    fixed_features : tuple (default: None)
+        If not `None`, the feature indices provided as a tuple will be
+        regarded as fixed by the feature selector. For example, if
+        `fixed_features=(1, 3, 7)`, the 2nd, 4th, and 8th feature are
+        guaranteed to be present in the solution. Note that if
+        `fixed_features` is not `None`, make sure that the number of
+        features to be selected is greater than `len(fixed_features)`.
+        In other words, ensure that `k_features > len(fixed_features)`.
+        New in mlxtend v. 0.18.0.
+
+    Attributes
+    ----------
+    k_feature_idx_ : array-like, shape = [n_predictions]
+        Feature Indices of the selected feature subsets.
+    k_feature_names_ : array-like, shape = [n_predictions]
+        Feature names of the selected feature subsets. If pandas
+        DataFrames are used in the `fit` method, the feature
+        names correspond to the column names. Otherwise, the
+        feature names are string representation of the feature
+        array indices. New in v 0.13.0.
+    k_score_ : float
+        Cross validation average score of the selected subset.
+    subsets_ : dict
+        A dictionary of selected feature subsets during the
+        sequential selection, where the dictionary keys are
+        the lengths k of these feature subsets. The dictionary
+        values are dictionaries themselves with the following
+        keys: 'feature_idx' (tuple of indices of the feature subset)
+              'feature_names' (tuple of feature names of the feat. subset)
+              'cv_scores' (list individual cross-validation scores)
+              'avg_score' (average cross-validation score)
+        Note that if pandas
+        DataFrames are used in the `fit` method, the 'feature_names'
+        correspond to the column names. Otherwise, the
+        feature names are string representation of the feature
+        array indices. The 'feature_names' is new in v 0.13.0.
+
+    Examples
+    -----------
+    For usage examples, please see
+    http://rasbt.github.io/mlxtend/user_guide/feature_selection/SequentialFeatureSelector/
+
+    """
+
+    def __init__(
+        self,
+        estimator,
+        k_features=1,
+        forward=True,
+        floating=False,
+        verbose=0,
+        scoring=None,
+        cv=5,
+        n_jobs=1,
+        pre_dispatch="2*n_jobs",
+        clone_estimator=True,
+        fixed_features=None,
+        feature_groups=None,
+    ):
+
+        self.estimator = estimator
+        self.k_features = k_features
+        self.forward = forward
+        self.floating = floating
+        self.pre_dispatch = pre_dispatch
+        # Want to raise meaningful error message if a
+        # cross-validation generator is inputted
+        if isinstance(cv, types.GeneratorType):
+            err_msg = (
+                "Input cv is a generator object, which is not "
+                "supported. Instead please input an iterable yielding "
+                "train, test splits. This can usually be done by "
+                "passing a cross-validation generator to the "
+                "built-in list function. I.e. cv=list(<cv-generator>)"
+            )
+            raise TypeError(err_msg)
+        self.cv = cv
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.clone_estimator = clone_estimator
+
+        if fixed_features is not None:
+            if isinstance(self.k_features, int) and self.k_features <= len(
+                fixed_features
+            ):
+                raise ValueError(
+                    "Number of features to be selected must"
+                    " be larger than the number of"
+                    " features specified via `fixed_features`."
+                    " Got `k_features=%d` and"
+                    " `fixed_features=%d`" % (k_features, len(fixed_features))
+                )
+
+            elif isinstance(self.k_features, tuple) and self.k_features[0] <= len(
+                fixed_features
+            ):
+                raise ValueError(
+                    "The minimum number of features to"
+                    " be selected must"
+                    " be larger than the number of"
+                    " features specified via `fixed_features`."
+                    " Got `k_features=%s` and "
+                    "`len(fixed_features)=%d`" % (k_features, len(fixed_features))
+                )
+
+        self.fixed_features = fixed_features
+        if self.fixed_features is None:
+            self.fixed_features = tuple()
+
+        self.feature_groups = feature_groups
+
+        if self.clone_estimator:
+            self.est_ = clone(self.estimator)
+        else:
+            self.est_ = self.estimator
+        self.scoring = scoring
+
+        if scoring is None:
+            if not hasattr(self.est_, "_estimator_type"):
+                raise AttributeError(
+                    "Estimator must have an ._estimator_type for infering `scoring`"
+                )
+
+            if self.est_._estimator_type == "classifier":
+                scoring = "accuracy"
+            elif self.est_._estimator_type == "regressor":
+                scoring = "r2"
+            else:
+                raise AttributeError("Estimator must be a Classifier or Regressor.")
+        if isinstance(scoring, str):
+            self.scorer = get_scorer(scoring)
+        else:
+            self.scorer = scoring
+
+        self.fitted = False
+        self.subsets_ = {}
+        self.interrupted_ = False
+
+        # don't mess with this unless testing
+        self._TESTING_INTERRUPT_MODE = False
+
+    @property
+    def named_estimators(self):
+        """
+        Returns
+        -------
+        List of named estimator tuples, like [('svc', SVC(...))]
+        """
+        return _name_estimators([self.estimator])
+
+    def get_params(self, deep=True):
+        #
+        # Return estimator parameter names for GridSearch support.
+        #
+        return self._get_params("named_estimators", deep=deep)
+
+    def set_params(self, **params):
+        """Set the parameters of this estimator.
+        Valid parameter keys can be listed with ``get_params()``.
+
+        Returns
+        -------
+        self
+        """
+        self._set_params("estimator", "named_estimators", **params)
+        return self
+
+    def fit(self, X, y, custom_feature_names=None, groups=None, **fit_params):
+        """Perform feature selection and learn model from training data.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+            New in v 0.13.0: pandas DataFrames are now also accepted as
+            argument for X.
+        y : array-like, shape = [n_samples]
+            Target values.
+            New in v 0.13.0: pandas DataFrames are now also accepted as
+            argument for y.
+        custom_feature_names : None or tuple (default: tuple)
+            Custom feature names for `self.k_feature_names` and
+            `self.subsets_[i]['feature_names']`.
+            (new in v 0.13.0)
+        groups : array-like, with shape (n_samples,), optional
+            Group labels for the samples used while splitting the dataset into
+            train/test set. Passed to the fit method of the cross-validator.
+        fit_params : various, optional
+            Additional parameters that are being passed to the estimator.
+            For example, `sample_weights=weights`.
+
+        Returns
+        -------
+        self : object
+
+        """
+
+        # reset from a potential previous fit run
+        self.subsets_ = {}
+        self.fitted = False
+        self.interrupted_ = False
+        self.k_feature_idx_ = None
+        self.k_feature_names_ = None
+        self.k_score_ = None
+
+        self.fixed_features_ = self.fixed_features
+        if hasattr(X, "loc"):
+            X_ = X.values
+            self.fixed_features_ = tuple(
+                X.columns.get_loc(c) if isinstance(c, str) else c
+                for c in self.fixed_features_
+            )
+        else:
+            X_ = X
+        self.fixed_features_set_ = set(self.fixed_features_)
+
+        if self.feature_groups is None:
+            self.feature_groups = [[i] for i in range(X_.shape[1])]
+
+        features_groupID = np.full(X_.shape[1], -1, dtype=np.int64)
+        for id, group in enumerate(self.feature_groups):
+            for idx in group:
+                features_groupID[idx] = id
+
+        lst = [features_groupID[idx] for idx in self.fixed_features_]
+        self.fixed_features_group_set = set(lst)
+
+        if custom_feature_names is not None and len(custom_feature_names) != X.shape[1]:
+            raise ValueError(
+                "If custom_feature_names is not None, "
+                "the number of elements in custom_feature_names "
+                "must equal the number of columns in X."
+            )
+
+        if (
+            not isinstance(self.k_features, int)
+            and not isinstance(self.k_features, tuple)
+            and not isinstance(self.k_features, str)
+        ):
+            raise AttributeError(
+                "k_features must be a positive integer" ", tuple, or string"
+            )
+
+        if isinstance(self.k_features, int) and (
+            self.k_features < 1 or self.k_features > X_.shape[1]
+        ):
+            raise AttributeError(
+                "k_features must be a positive integer"
+                " between 1 and X.shape[1], got %s" % (self.k_features,)
+            )
+
+        if isinstance(self.k_features, tuple):
+            if len(self.k_features) != 2:
+                raise AttributeError(
+                    "k_features tuple must consist of 2"
+                    " elements, a min and a max value."
+                )
+
+            if self.k_features[0] not in range(1, X_.shape[1] + 1):
+                raise AttributeError(
+                    "k_features tuple min value must be in" " range(1, X.shape[1]+1)."
+                )
+
+            if self.k_features[1] not in range(1, X_.shape[1] + 1):
+                raise AttributeError(
+                    "k_features tuple max value must be in" " range(1, X.shape[1]+1)."
+                )
+
+            if self.k_features[0] > self.k_features[1]:
+                raise AttributeError(
+                    "The min k_features value must be smaller"
+                    " than the max k_features value."
+                )
+
+        is_parsimonious = False
+        if isinstance(self.k_features, str):
+            if self.k_features not in {"best", "parsimonious"}:
+                raise AttributeError(
+                    "If a string argument is provided, "
+                    'it must be "best" or "parsimonious"'
+                )
+            if self.k_features == "parsimonious":
+                is_parsimonious = True
+
+        min_n_groups = len(self.fixed_features_group_set)
+        max_n_groups = len(self.feature_groups)
+        if isinstance(self.k_features, str):
+            self.k_features = (min_n_groups, max_n_groups)
+        elif isinstance(self.k_features, int):
+            # we treat k_features as k group of features
+            self.k_features = (self.k_features, self.k_features)
+
+        min_k = self.k_features[0]
+        max_k = self.k_features[1]
+
+        if self.forward:
+            k_idx = tuple(sorted(self.fixed_features_group_set))
+            k_stop = max_k
+        else:
+            k_idx = tuple(range(max_n_groups))
+            k_stop = min_k
+
+        k = len(k_idx)
+        if k > 0:
+            k_idx, k_score = _calc_score(
+                self,
+                X_,
+                y,
+                k_idx,
+                groups=groups,
+                feature_groups=self.feature_groups,
+                **fit_params
+            )
+            self.subsets_[k] = {
+                "feature_idx": k_idx,
+                "cv_scores": k_score,
+                "avg_score": np.nanmean(k_score),
+            }
+
+        orig_set = set(range(max_n_groups))
+        best_subset = None
+        k_score = 0
+        try:
+            while k != k_stop:
+                prev_subset = set(k_idx)
+                if self.forward:
+                    search_set = orig_set
+                    must_include_set = prev_subset
+                else:
+                    search_set = prev_subset
+                    must_include_set = self.fixed_features_group_set
+
+                k_idx, k_score, cv_scores = self._feature_selector(
+                    search_set,
+                    must_include_set,
+                    X=X_,
+                    y=y,
+                    is_forward=self.forward,
+                    groups=groups,
+                    feature_groups=self.feature_groups,
+                    **fit_params
+                )
+
+                k = len(k_idx)
+                # floating can lead to multiple same-sized subsets
+                if k not in self.subsets_ or (k_score > self.subsets_[k]["avg_score"]):
+                    k_idx = tuple(sorted(k_idx))
+                    self.subsets_[k] = {
+                        "feature_idx": k_idx,
+                        "cv_scores": cv_scores,
+                        "avg_score": k_score,
+                    }
+
+                if self.floating:
+                    # floating direction is opposite of self.forward, i.e. in
+                    # forward selection, we do floating in backward manner,
+                    # and in backward selection, we do floating in forward manner
+                    is_float_forward = not self.forward
+                    (new_feature_idx,) = set(k_idx) ^ prev_subset
+                    for _ in range(X_.shape[1]):
+                        if (
+                            self.forward
+                            and (len(k_idx) - len(self.fixed_features_group_set)) <= 2
+                        ):
+                            break
+                        if not self.forward and (len(orig_set) - len(k_idx) <= 2):
+                            break
+
+                        if is_float_forward:
+                            # corresponding to self.forward=False
+                            search_set = orig_set - {new_feature_idx}
+                            must_include_set = set(k_idx)
+                        else:
+                            # corresponding to self.forward=True
+                            search_set = set(k_idx)
+                            must_include_set = self.fixed_features_group_set | {
+                                new_feature_idx
+                            }
+
+                        (k_idx_c, k_score_c, cv_scores_c,) = self._feature_selector(
+                            search_set,
+                            must_include_set,
+                            X=X_,
+                            y=y,
+                            is_forward=is_float_forward,
+                            groups=groups,
+                            feature_groups=self.feature_groups,
+                            **fit_params
+                        )
+
+                        if k_score_c <= k_score:
+                            break
+
+                        # In the floating process, we basically revisit our previous
+                        # steps. so, len(k_idx_c) definitely exists as a key in
+                        # the dictionary `self.subsets_`
+                        if k_score_c <= self.subsets_[len(k_idx_c)]["avg_score"]:
+                            break
+                        else:
+                            k_idx, k_score, cv_scores = k_idx_c, k_score_c, cv_scores_c
+                            k_idx = tuple(sorted(k_idx))
+                            k = len(k_idx)
+                            self.subsets_[k] = {
+                                "feature_idx": k_idx,
+                                "cv_scores": cv_scores,
+                                "avg_score": k_score,
+                            }
+
+                if self.verbose == 1:
+                    sys.stderr.write("\rFeatures: %d/%s" % (len(k_idx), k_stop))
+                    sys.stderr.flush()
+                elif self.verbose > 1:
+                    sys.stderr.write(
+                        "\n[%s] Features: %d/%s -- score: %s"
+                        % (
+                            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            len(k_idx),
+                            k_stop,
+                            k_score,
+                        )
+                    )
+
+                # just to test `KeyboardInterrupt`
+                if self._TESTING_INTERRUPT_MODE:
+                    for k in self.subsets_:
+                        self.subsets_[k]["feature_idx"] = _merge_lists(
+                            self.feature_groups, self.subsets_[k]["feature_idx"]
+                        )
+                    self.k_feature_idx_ = _merge_lists(self.feature_groups, k_idx)
+                    self.k_score_ = k_score
+                    self.subsets_, self.k_feature_names_ = _get_featurenames(
+                        self.subsets_, self.k_feature_idx_, custom_feature_names, X
+                    )
+                    raise KeyboardInterrupt
+
+        except KeyboardInterrupt:
+            self.interrupted_ = True
+            sys.stderr.write("\nSTOPPING EARLY DUE TO KEYBOARD INTERRUPT...")
+
+        if self.interrupted_:
+            return self
+        else:
+            self.fitted = True  # the completion of sequential selection process.
+            max_score = np.NINF
+            for k in self.subsets_:
+                if (
+                    k >= min_k
+                    and k <= max_k
+                    and self.subsets_[k]["avg_score"] > max_score
+                ):
+                    max_score = self.subsets_[k]["avg_score"]
+                    best_subset = k
+
+            k_score = max_score
+            k_idx = self.subsets_[best_subset]["feature_idx"]
+
+            if is_parsimonious:
+                for k in self.subsets_:
+                    if k >= best_subset:
+                        continue
+                    if self.subsets_[k]["avg_score"] >= (
+                        max_score
+                        - np.std(self.subsets_[k]["cv_scores"])
+                        / self.subsets_[k]["cv_scores"].shape[0]
+                    ):
+                        max_score = self.subsets_[k]["avg_score"]
+                        best_subset = k
+                k_score = max_score
+                k_idx = self.subsets_[best_subset]["feature_idx"]
+
+            for k in self.subsets_:
+                self.subsets_[k]["feature_idx"] = _merge_lists(
+                    self.feature_groups, self.subsets_[k]["feature_idx"]
+                )
+            self.k_feature_idx_ = _merge_lists(self.feature_groups, k_idx)
+            self.k_score_ = k_score
+            self.subsets_, self.k_feature_names_ = _get_featurenames(
+                self.subsets_, self.k_feature_idx_, custom_feature_names, X
+            )
+
+            return self
+
+    def _feature_selector(
+        self,
+        search_set,
+        must_include_set,
+        X,
+        y,
+        is_forward,
+        groups=None,
+        feature_groups=None,
+        **fit_params
+    ):
+        """Perform one round of feature selection. When `is_forward=True`, it is
+        a forward selection that searches the `search_set` to find one feature that
+        with `must_include_set` results in highest average score. When
+        `is_forward=False`, it is a backward selection that searches the `search_set`
+        for a feature that its exclusion results in a set of features that includes
+        `must_include_set` and has the highest averege score.
+
+        Parameters
+        ----------
+        self : object
+            an instance of class `SequentialFeatureSelector`
+
+        search_set : set
+            a set of features through which a feature must be selected to be included
+            (when `is_forward=True`) or to be excluded (when `is_forward=False`)
+
+        must_include_set : set
+            a set of features that must be present in the selected subset of features
+
+        X : numpy.ndarray
+            a 2D numpy array. Each row corresponds to one observation and each
+            column corresponds to one feature.
+
+        y : numpy.ndarray
+            the target variable
+
+        is_forward : bool
+            True if it is forward selection. False if it is backward selection
+
+        groups : array-like, with shape (n_samples,), optional
+            Group labels for the samples used while splitting the dataset into
+            train/test set. Passed to the fit method of the cross-validator.
+
+        fit_params : various, optional
+            Additional parameters that are being passed to the estimator.
+            For example, `sample_weights=weights`.
+
+        Returns
+        -------
+        out1 : the selected set of features that has the highest mean of cv scores
+        out2 : the mean of cv scores for the selected set of features.
+        out3 : all cv scores for the selected set of features
+        """
+        out = (None, None, None)
+
+        if feature_groups is None:
+            feature_groups = [[i] for i in range(X.shape[1])]
+
+        remaining_set = search_set - must_include_set
+        remaining = list(remaining_set)
+        n = len(remaining)
+        if n > 0:
+            if is_forward:
+                feature_explorer = combinations(remaining, r=1)
+            else:
+                feature_explorer = combinations(remaining, r=n - 1)
+
+            n_jobs = min(self.n_jobs, n)
+            parallel = Parallel(
+                n_jobs=n_jobs, verbose=self.verbose, pre_dispatch=self.pre_dispatch
+            )
+            work = parallel(
+                delayed(_calc_score)(
+                    self,
+                    X,
+                    y,
+                    tuple(set(p) | must_include_set),
+                    groups=groups,
+                    feature_groups=feature_groups,
+                    **fit_params
+                )
+                for p in feature_explorer
+            )
+
+            all_avg_scores = []
+            all_cv_scores = []
+            all_subsets = []
+            for new_subset, cv_scores in work:
+                all_avg_scores.append(np.nanmean(cv_scores))
+                all_cv_scores.append(cv_scores)
+                all_subsets.append(new_subset)
+
+            if len(all_avg_scores) > 0:
+                best = np.argmax(all_avg_scores)
+                out = (all_subsets[best], all_avg_scores[best], all_cv_scores[best])
+
+        return out
+
+    def transform(self, X):
+        """Reduce X to its most important features.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+            New in v 0.13.0: pandas DataFrames are now also accepted as
+            argument for X.
+
+        Returns
+        -------
+        Reduced feature subset of X, shape={n_samples, k_features}
+
+        """
+        self._check_fitted()
+        if hasattr(X, "loc"):
+            X_ = X.values
+        else:
+            X_ = X
+        return X_[:, self.k_feature_idx_]
+
+    def fit_transform(self, X, y, groups=None, **fit_params):
+        """Fit to training data then reduce X to its most important features.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+            New in v 0.13.0: pandas DataFrames are now also accepted as
+            argument for X.
+        y : array-like, shape = [n_samples]
+            Target values.
+            New in v 0.13.0: a pandas Series are now also accepted as
+            argument for y.
+        groups : array-like, with shape (n_samples,), optional
+            Group labels for the samples used while splitting the dataset into
+            train/test set. Passed to the fit method of the cross-validator.
+        fit_params : various, optional
+            Additional parameters that are being passed to the estimator.
+            For example, `sample_weights=weights`.
+
+        Returns
+        -------
+        Reduced feature subset of X, shape={n_samples, k_features}
+
+        """
+        self.fit(X, y, groups=groups, **fit_params)
+        return self.transform(X)
+
+    def get_metric_dict(self, confidence_interval=0.95):
+        """Return metric dictionary
+
+        Parameters
+        ----------
+        confidence_interval : float (default: 0.95)
+            A positive float between 0.0 and 1.0 to compute the confidence
+            interval bounds of the CV score averages.
+
+        Returns
+        ----------
+        Dictionary with items where each dictionary value is a list
+        with the number of iterations (number of feature subsets) as
+        its length. The dictionary keys corresponding to these lists
+        are as follows:
+            'feature_idx': tuple of the indices of the feature subset
+            'cv_scores': list with individual CV scores
+            'avg_score': of CV average scores
+            'std_dev': standard deviation of the CV score average
+            'std_err': standard error of the CV score average
+            'ci_bound': confidence interval bound of the CV score average
+
+        """
+        self._check_fitted()
+        fdict = deepcopy(self.subsets_)
+        for k in fdict:
+            std_dev = np.std(self.subsets_[k]["cv_scores"])
+            bound, std_err = self._calc_confidence(
+                self.subsets_[k]["cv_scores"], confidence=confidence_interval
+            )
+            fdict[k]["ci_bound"] = bound
+            fdict[k]["std_dev"] = std_dev
+            fdict[k]["std_err"] = std_err
+        return fdict
+
+    def _calc_confidence(self, ary, confidence=0.95):
+        std_err = scipy.stats.sem(ary)
+        bound = std_err * sp.stats.t._ppf((1 + confidence) / 2.0, len(ary))
+        return bound, std_err
+
+    def _check_fitted(self):
+        if not self.fitted:
+            raise AttributeError(
+                "SequentialFeatureSelector has not been" " fitted, yet."
+            )

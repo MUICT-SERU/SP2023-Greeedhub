@@ -1,0 +1,2 @@
+class AnachronosException(BaseException):
+    pass

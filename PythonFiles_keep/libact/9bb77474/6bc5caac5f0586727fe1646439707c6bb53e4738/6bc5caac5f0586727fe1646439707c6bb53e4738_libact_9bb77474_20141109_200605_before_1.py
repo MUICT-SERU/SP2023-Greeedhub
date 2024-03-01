@@ -1,0 +1,3 @@
+"""
+Concrete query strategy classes.
+"""

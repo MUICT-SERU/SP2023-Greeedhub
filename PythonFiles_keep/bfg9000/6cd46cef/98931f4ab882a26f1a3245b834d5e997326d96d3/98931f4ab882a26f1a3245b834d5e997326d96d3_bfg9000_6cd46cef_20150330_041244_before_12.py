@@ -1,0 +1,35 @@
+import shutil
+import unittest
+
+import os
+import subprocess
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+builddir = 'build'
+bfg9000 = os.path.join(basedir, '../src/bfg9000')
+
+def cleandir(path):
+    try:
+        shutil.rmtree(path)
+    except:
+        pass
+    os.mkdir(path)
+
+class TestLibrary(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        unittest.TestCase.__init__(self, *args, **kwargs)
+        self.backend = os.getenv('BACKEND', 'make')
+
+    def setUp(self):
+        os.chdir(os.path.join(basedir, os.path.join('library')))
+        cleandir('build')
+        subprocess.check_call([bfg9000, 'build', '--backend', self.backend])
+
+    def test_all(self):
+        os.chdir('build')
+        subprocess.check_call([self.backend, 'program'])
+        self.assertEqual(subprocess.check_output(['./program']),
+                         'hello, library!\n')
+
+if __name__ == '__main__':
+    unittest.main()

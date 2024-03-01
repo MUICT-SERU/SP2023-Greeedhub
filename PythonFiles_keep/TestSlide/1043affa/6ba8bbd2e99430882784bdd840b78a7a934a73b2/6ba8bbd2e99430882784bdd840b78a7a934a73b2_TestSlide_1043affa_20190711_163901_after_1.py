@@ -1,0 +1,339 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+
+import sys
+import contextlib
+
+from testslide.dsl import context, xcontext, fcontext, Skip  # noqa: F401
+from testslide.mock_callable import _MockCallableDSL
+
+
+class BaseTarget(object):
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        if "p2_super" in kwargs:
+            self.p2_super = kwargs["p2_super"]
+        if "p3_super" in kwargs:
+            self.p3_super = kwargs["p3_super"]
+
+    def p2_super_instance_method(self):
+        return "p2_super_instance_method"
+
+    def p3_super_instance_method(self):
+        return "p3_super_instance_method"
+
+    @classmethod
+    def p2_super_class_method(cls):
+        return "p2_super_class_method"
+
+    @classmethod
+    def p3_super_class_method(cls):
+        return "p3_super_class_method"
+
+
+class Target(BaseTarget):
+    CLASS_ATTR = "CLASS_ATTR"
+
+    def __init__(self, *args, **kwargs):
+        self.p2_super = False
+        super(Target, self).__init__(p2_super=True)
+
+        if sys.version_info[0] >= 3:
+            self.p3_super = False
+            super().__init__(p3_super=True)
+
+        super(Target, self).__init__(*args, **kwargs)
+
+    def regular_instance_method(self):
+        return "regular_instance_method"
+
+    def p2_super_instance_method(self):
+        return super(Target, self).p2_super_instance_method()
+
+    def p3_super_instance_method(self):
+        return super().p3_super_instance_method()
+
+    @classmethod
+    def regular_class_method(cls):
+        return "regular_class_method"
+
+    @classmethod
+    def p2_super_class_method(cls):
+        return super(Target, cls).p2_super_class_method()
+
+    if sys.version_info[0] >= 3:
+
+        @classmethod
+        def p3_super_class_method(cls):
+            return super().p3_super_class_method()
+
+
+original_target_class = Target
+target_class_name = original_target_class.__name__
+
+
+def function_at_module():
+    pass
+
+
+@context("mock_constructor()")
+def mock_constructor(context):
+
+    context.memoize("target_module", lambda self: sys.modules[__name__])
+    context.memoize_before("target_class_name", lambda self: target_class_name)
+
+    @context.function
+    def get_target_class(self):
+        return getattr(self.target_module, self.target_class_name)
+
+    @context.function
+    @contextlib.contextmanager
+    def assertRaisesWithMessage(self, exception, msg):
+        with self.assertRaises(exception) as cm:
+            yield
+        ex_msg = str(cm.exception)
+        self.assertEqual(
+            ex_msg,
+            msg,
+            "Expected exception {}.{} message "
+            "to be\n{}\nbut got\n{}.".format(
+                exception.__module__, exception.__name__, repr(msg), repr(ex_msg)
+            ),
+        )
+
+    @context.before
+    def assert_unpatched(self):
+        self.assertTrue(
+            original_target_class is self.get_target_class(), "Unpatching didn't work."
+        )
+        args = (1, 2)
+        kwargs = {"3": 4, "5": 6}
+        t = Target(*args, **kwargs)
+        self.assertEqual(type(t), original_target_class)
+        self.assertEqual(t.args, args)
+        self.assertEqual(t.kwargs, kwargs)
+
+    @context.shared_context
+    def class_attributes(context):
+        @context.example
+        def attributes_are_not_affected(self):
+            self.assertEqual(self.class_attribute_target.CLASS_ATTR, "CLASS_ATTR")
+
+        @context.sub_context
+        def class_methods(context):
+            @context.example
+            def are_not_affected(self):
+                self.assertEqual(
+                    self.class_attribute_target.regular_class_method(),
+                    "regular_class_method",
+                )
+
+            @context.example("super(Target, cls) works")
+            def p2_super_works(self):
+                self.assertEqual(
+                    self.class_attribute_target.p2_super_class_method(),
+                    "p2_super_class_method",
+                )
+
+            @context.example("super() works")
+            def p3_super_works(self):
+                self.assertEqual(
+                    self.class_attribute_target.p3_super_class_method(),
+                    "p3_super_class_method",
+                )
+
+    @context.sub_context
+    def arguments(context):
+        @context.sub_context
+        def module(context):
+            context.memoize("args", lambda self: (6, 7))
+            context.memoize("kwargs", lambda self: {"8": 9, "10": 11})
+
+            @context.after
+            def assert_working(self):
+                mocked_instance = self.get_target_class()(*self.args, **self.kwargs)
+                self.assertEqual(mocked_instance, "mocked")
+
+            @context.example
+            def accepts_string(self):
+                self.mock_constructor(
+                    self.target_module.__name__, self.target_class_name
+                ).for_call(*self.args, **self.kwargs).to_return_value("mocked")
+
+            @context.example
+            def accepts_reference(self):
+                self.mock_constructor(
+                    self.target_module, self.target_class_name
+                ).for_call(*self.args, **self.kwargs).to_return_value("mocked")
+
+        @context.sub_context("class")
+        def klass(context):
+            @context.example
+            def rejects_non_string_class_name(self):
+                with self.assertRaisesWithMessage(
+                    ValueError,
+                    "Second argument must be a string with the name of the class.",
+                ):
+                    self.mock_constructor(self.target_module, original_target_class)
+
+            @context.example
+            def rejects_non_class_targets(self):
+                with self.assertRaisesWithMessage(
+                    ValueError, "Target must be a class."
+                ):
+                    self.mock_constructor(self.target_module, "function_at_module")
+
+    @context.sub_context
+    def class_attributes_at_the_class(context):
+        @context.memoize
+        def class_attribute_target(self):
+            return self.get_target_class()
+
+        context.merge_context("class attributes")
+
+    @context.sub_context("mock_callable() integration")
+    def mock_callable_integration(context):
+        @context.example
+        def it_uses_mock_callable_interface(self):
+            self.assertIsInstance(
+                self.mock_constructor(self.target_module, self.target_class_name),
+                _MockCallableDSL,
+            )
+
+        @context.example
+        def registers_call_count_and_args_correctly(self):
+            self.mock_constructor(self.target_module, self.target_class_name).for_call(
+                "Hello", "World"
+            ).to_return_value(None).and_assert_called_exactly(2)
+
+            target_class = self.get_target_class()
+            t1 = target_class("Hello", "World")
+            t2 = target_class("Hello", "World")
+
+            self.assertIsNone(t1)
+            self.assertIsNone(t2)
+
+        @context.sub_context
+        def behavior(context):
+            @context.example("works with .to_call_original()")
+            def works_with_to_call_original(self):
+                default_args = ("default",)
+                specific_args = ("specific",)
+
+                self.mock_constructor(
+                    self.target_module, self.target_class_name
+                ).to_call_original()
+                self.mock_constructor(
+                    self.target_module, self.target_class_name
+                ).for_call(*specific_args).to_return_value("mocked_target")
+
+                default_target = self.get_target_class()(*default_args)
+                self.assertEqual(default_target.args, default_args)
+
+                specific_target = self.get_target_class()(*specific_args)
+                self.assertEqual(specific_target, "mocked_target")
+
+            @context.sub_context(".with_wrapper()")
+            def with_wrapper(context):
+                context.memoize("args", lambda self: (1, 2))
+                context.memoize("wrapped_args", lambda self: (3, 4))
+                context.memoize("kwargs", lambda self: {"one": 1, "two": 2})
+                context.memoize("wrapped_kwargs", lambda self: {"three": 3, "four": 4})
+
+                @context.memoize
+                def target(self):
+                    return self.get_target_class()(*self.args, **self.kwargs)
+
+                @context.before
+                def setup_wrapper(self):
+                    def wrapper(original_callable, *args, **kwargs):
+                        return original_callable(
+                            *self.wrapped_args, **self.wrapped_kwargs
+                        )
+
+                    self.mock_constructor(
+                        self.target_module, self.target_class_name
+                    ).with_wrapper(wrapper)
+
+                @context.example
+                def wrapped_instance_is_instance_of_original_class(self):
+                    self.assertIsInstance(self.target, original_target_class)
+
+                @context.example
+                def constructor_is_wrapped(self):
+                    self.assertSequenceEqual(self.target.args, self.wrapped_args)
+                    self.assertSequenceEqual(self.target.kwargs, self.wrapped_kwargs)
+
+                @context.example
+                def factory_works(self):
+                    def factory(original_callable, message):
+                        return "got: {}".format(message)
+
+                    self.mock_constructor(
+                        self.target_module, self.target_class_name
+                    ).for_call("factory").with_wrapper(factory)
+                    target = self.get_target_class()("factory")
+                    self.assertEqual(target, "got: factory")
+
+                @context.sub_context
+                def class_attributes_at_the_instance(context):
+                    context.memoize("class_attribute_target", lambda self: self.target)
+
+                    context.merge_context("class attributes")
+
+                @context.sub_context("Target.__init__()")
+                def target_init(context):
+                    @context.example("super(Target, self)")
+                    def p2_super_works(self):
+                        target = self.get_target_class()(p2_super=True)
+                        self.assertTrue(target.p2_super)
+
+                    if sys.version_info[0] >= 3:
+
+                        @context.example("super() works")
+                        def p3_super_works(self):
+                            target = self.get_target_class()(p3_super=True)
+                            self.assertTrue(target.p3_super)
+
+                    @context.example
+                    def can_be_called_again(self):
+                        new_args = ("new", "args")
+                        new_kwargs = {"new": "kwargs"}
+                        self.target.__init__(*new_args, **new_kwargs)
+                        self.assertEqual(self.target.args, new_args)
+                        self.assertEqual(self.target.kwargs, new_kwargs)
+
+                @context.sub_context
+                def instance_methods(context):
+                    @context.example
+                    def it_works(self):
+                        self.assertEqual(
+                            self.target.regular_instance_method(),
+                            "regular_instance_method",
+                        )
+
+                    @context.sub_context
+                    def when_it_overloads_parent_method(context):
+                        @context.example("super(Target, self) works")
+                        def p2_super_works(self):
+                            self.assertEqual(
+                                self.target.p2_super_instance_method(),
+                                "p2_super_instance_method",
+                            )
+
+                        if sys.version_info[0] >= 3:
+
+                            @context.example("super() works")
+                            def p3_super_works(self):
+                                self.assertEqual(
+                                    self.target.p3_super_instance_method(),
+                                    "p3_super_instance_method",
+                                )

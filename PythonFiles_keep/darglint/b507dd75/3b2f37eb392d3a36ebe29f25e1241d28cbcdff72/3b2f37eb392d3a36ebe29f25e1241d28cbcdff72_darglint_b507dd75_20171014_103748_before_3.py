@@ -1,0 +1,135 @@
+"""Defines IntegrityChecker."""
+
+from .darglint import (
+    FunctionDescription,
+)
+from .lex import lex
+from .parse import (
+    Docstring,
+)
+from .errors import (
+    ExcessParameterError,
+    ExcessRaiseError,
+    ExcessReturnError,
+    ExcessYieldError,
+    MissingParameterError,
+    MissingRaiseError,
+    MissingReturnError,
+    MissingYieldError,
+)
+from .error_report import (
+    LowVerbosityErrorReport,
+    MidVerbosityErrorReport,
+    HighVerbosityErrorReport,
+)
+
+
+class IntegrityChecker(object):
+    """Checks the integrity of the docstring compared to the definition."""
+
+    def __init__(self):
+        """Create a new checker for the given function and docstring."""
+        self.function = None  # type: FunctionDescription
+        self.errors = list()  # type: List[DarglintError]
+        self._sorted = True
+
+    def run_checks(self, function: FunctionDescription):
+        """Run checks on the given function.
+
+        Args:
+            function: A function whose docstring we are verifying.
+
+        """
+        self.function = function
+        if function.docstring is not None:
+            self.docstring = Docstring(lex(function.docstring))
+            self._check_parameters()
+            self._check_return()
+            self._check_yield()
+            self._check_raises()
+            self._sorted = False
+
+    def _check_yield(self):
+        doc_yield = len(self.docstring.yields_description) > 0
+        fun_yield = self.function.has_yield
+        if fun_yield and not doc_yield:
+            self.errors.append(
+                MissingYieldError(self.function.function)
+            )
+        elif doc_yield and not fun_yield:
+            self.errors.append(
+                ExcessYieldError(self.function.function)
+            )
+
+    def _check_return(self):
+        doc_return = len(self.docstring.returns_description) > 0
+        fun_return = self.function.has_return
+        if fun_return and not doc_return:
+            self.errors.append(
+                MissingReturnError(self.function.function)
+            )
+        elif doc_return and not fun_return:
+            self.errors.append(
+                ExcessReturnError(self.function.function)
+            )
+
+    def _check_parameters(self):
+        docstring_arguments = set(self.docstring.arguments_descriptions.keys())
+        actual_arguments = set(self.function.argument_names)
+        missing_in_doc = actual_arguments - docstring_arguments
+        for missing in missing_in_doc:
+            self.errors.append(
+                MissingParameterError(self.function.function, missing)
+            )
+        missing_in_function = docstring_arguments - actual_arguments
+        for missing in missing_in_function:
+            self.errors.append(
+                ExcessParameterError(self.function.function, missing)
+            )
+
+    def _check_raises(self):
+        docstring_raises = set(self.docstring.raises_descriptions.keys())
+        actual_raises = self.function.raises
+        missing_in_doc = actual_raises - docstring_raises
+        for missing in missing_in_doc:
+            self.errors.append(
+                MissingRaiseError(self.function.function, missing)
+            )
+
+        # TODO: Disable by default.
+        #
+        # Should we even include this?  It seems like the user
+        # would know if this function would be likely to raise
+        # a certain exception from underlying calls.
+        #
+        missing_in_function = docstring_raises - actual_raises
+        for missing in missing_in_function:
+            self.errors.append(
+                ExcessRaiseError(self.function.function, missing)
+            )
+
+    def _sort(self):
+        if not self._sorted:
+            self.errors.sort(key=lambda x: x.function.lineno)
+            self._sorted = True
+
+    def get_error_report(self, verbosity: int) -> str:
+        """Return a string representation of the errors.
+
+        Args:
+            verbosity:
+                The level of verbosity.  Should be an integer
+                in the range [1,3].
+
+        Returns:
+            A string representation of the errors.
+
+        """
+        error_report = None
+        if verbosity <= 1:
+            error_report = LowVerbosityErrorReport(self.errors)
+        elif verbosity == 2:
+            error_report = MidVerbosityErrorReport(self.errors)
+        else:
+            error_report = HighVerbosityErrorReport(self.errors)
+        return str(error_report)

@@ -1,0 +1,25 @@
+from setuptools import setup
+import os
+
+NAME = "weightedcalcs"
+HERE = os.path.abspath(os.path.dirname(__file__))
+
+version_ns = {}
+with open(os.path.join(HERE, NAME, '__version__.py')) as f:
+    exec(f.read(), {}, version_ns)
+
+setup(
+    name="weightedcalcs",
+    version=version_ns['__version__'],
+    description="Pandas-based utility to calculate weighted means, medians, distributions, standard deviations, and more.",
+    url="http://github.com/jsvine/weightedcalcs",
+    author="Jeremy Singer-Vine",
+    author_email="jsvine@gmail.com",
+    license="MIT",
+    packages=[
+        NAME
+    ],
+    install_requires=[
+        "pandas>=0.19"
+    ]
+)

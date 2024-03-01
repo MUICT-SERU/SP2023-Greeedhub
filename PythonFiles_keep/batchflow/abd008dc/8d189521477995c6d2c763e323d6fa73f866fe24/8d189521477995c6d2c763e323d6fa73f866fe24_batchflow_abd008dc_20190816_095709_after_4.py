@@ -1,0 +1,115 @@
+""" Contains common layers """
+import numpy as np
+import tensorflow as tf
+import tensorflow.keras.layers as K #pylint: disable=import-error
+
+from .utils import * #pylint: disable=wildcard-import
+
+
+@add_as_function
+class Flatten2D:
+    """ Flatten tensor to two dimensions (batch_size, item_vector_size) """
+    def __init__(self, *args, **kwargs):
+        self.args, self.kwargs = args, kwargs
+
+    def __call__(self, inputs):
+        x = tf.convert_to_tensor(inputs)
+        dims = tf.reduce_prod(tf.shape(x)[1:])
+        x = tf.reshape(x, [-1, dims], **self.kwargs)
+        return x
+
+
+
+@add_as_function
+class Flatten:
+    """ Flatten tensor to two dimensions (batch_size, item_vector_size) using inferred shape and numpy """
+    def __init__(self, *args, **kwargs):
+        self.args, self.kwargs = args, kwargs
+
+    def __call__(self, inputs):
+        x = tf.convert_to_tensor(inputs)
+        shape = x.get_shape().as_list()
+        dim = np.prod(shape[1:])
+        x = tf.reshape(x, [-1, dim], **self.kwargs)
+        return x
+
+
+
+def alpha_dropout(inputs, rate=0.5, seed=None, training=False, name=None):
+    """ Alpha dropout layer
+
+    Alpha Dropout is a dropout that maintains the self-normalizing property.
+    For an input with zero mean and unit standard deviation, the output of Alpha Dropout maintains
+    the original mean and standard deviation of the input.
+
+    Klambauer G. et al "`Self-Normalizing Neural Networks <https://arxiv.org/abs/1706.02515>`_"
+    """
+    return K.AlphaDropout(rate, seed=seed, name=name)(inputs, training)
+
+
+
+@add_as_function
+class Maxout:
+    """ Shrink last dimension by making max pooling every ``depth`` channels """
+    def __init__(self, depth, axis=-1, name='max', *args, **kwargs):
+        self.depth, self.axis = depth, axis
+        self.name = name
+        self.args, self.kwargs = args, kwargs
+
+    def __call__(self, inputs):
+        with tf.name_scope(self.name):
+            x = tf.convert_to_tensor(inputs)
+
+            shape = x.get_shape().as_list()
+            shape[self.axis] = -1
+            shape += [self.depth]
+            for i, _ in enumerate(shape):
+                if shape[i] is None:
+                    shape[i] = tf.shape(x)[i]
+
+            out = tf.reduce_max(tf.reshape(x, shape), axis=-1, keep_dims=False)
+            return out
+
+
+
+@add_as_function
+class Xip:
+    """ Shrink the channels dimension with reduce ``op`` every ``depth`` channels """
+    REDUCE_OP = {
+        'max': tf.reduce_max,
+        'mean': tf.reduce_mean,
+        'sum': tf.reduce_sum,
+    }
+
+    def __init__(self, depth, reduction='max', data_format='channels_last', name='max'):
+        self.depth, self.reduction, self.data_format = depth, reduction, data_format
+        self.name = name
+
+    def __call__(self, inputs):
+        reduce_op = self.REDUCE_OP[self.reduction]
+
+        with tf.name_scope(self.name):
+            x = tf.convert_to_tensor(inputs)
+
+            axis = -1 if self.data_format == 'channels_last' else 1
+            num_layers = x.get_shape().as_list()[axis]
+            split_sizes = [self.depth] * (num_layers // self.depth)
+            if num_layers % self.depth:
+                split_sizes += [num_layers % self.depth]
+
+            xips = [reduce_op(split, axis=axis) for split in tf.split(x, split_sizes, axis=axis)]
+            xips = tf.stack(xips, axis=axis)
+
+        return xips
+
+
+
+@add_as_function
+class Mip:
+    """ Maximum intensity projection by shrinking the channels dimension with max pooling every ``depth`` channels """
+    def __init__(self, depth, data_format='channels_last', name='max'):
+        self.depth, self.data_format = depth, data_format
+        self.name = name
+
+    def __call__(self, inputs):
+        return Xip(self.depth, 'max', self.data_format, self.name)(inputs)

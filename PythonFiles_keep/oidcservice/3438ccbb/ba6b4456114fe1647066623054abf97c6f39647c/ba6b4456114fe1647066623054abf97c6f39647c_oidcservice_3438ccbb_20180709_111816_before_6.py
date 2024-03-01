@@ -1,0 +1,55 @@
+from oidcservice.service_context import ServiceContext
+from oidcmsg.oidc import AuthorizationRequest
+from oidcservice.oidc.utils import construct_request_uri
+from oidcservice.oidc.utils import request_object_encryption
+
+from oidcmsg.key_jar import build_keyjar
+from oidcmsg.key_jar import public_keys_keyjar
+
+from cryptojwt.jwe import factory
+
+KEYSPEC = [
+    {"type": "RSA", "use": ["enc"]},
+    {"type": "EC", "crv": "P-256", "use": ["enc"]},
+]
+
+RECEIVER = 'https://example.org/op'
+
+keyjar = build_keyjar(KEYSPEC)[1]
+
+
+# reading and writing to the same KeyJAr instance
+public_keys_keyjar(keyjar, '', keyjar, RECEIVER)
+
+
+def test_request_object_encryption():
+    msg = AuthorizationRequest(state='ABCDE',
+                               redirect_uri='https://example.com/cb',
+                               response_type='code')
+
+    conf = {
+        'redirect_uris': ['https://example.com/cli/authz_cb'],
+        'client_id': 'client_1',
+        'client_secret': 'abcdefghijklmnop',
+    }
+    service_context = ServiceContext(keyjar=keyjar, config=conf)
+    service_context.behaviour["request_object_encryption_alg"] = 'RSA1_5'
+    service_context.behaviour["request_object_encryption_enc"] = "A128CBC-HS256"
+
+    _jwe = request_object_encryption(msg.to_json(), service_context,
+                                     target=RECEIVER)
+    assert _jwe
+
+    _jw = factory(_jwe)
+
+    assert _jw.jwt.headers['alg'] == 'RSA1_5'
+    assert _jw.jwt.headers['enc'] == 'A128CBC-HS256'
+
+
+def test_construct_request_uri():
+    local_dir = 'home'
+    base_path = 'https://example.com/'
+    a, b = construct_request_uri(local_dir, base_path)
+    assert a.startswith('home') and a.endswith('.jwt')
+    d, f = a.split('/')
+    assert b == '{}{}'.format(base_path, f)

@@ -1,0 +1,87 @@
+import numpy as np
+import tensorflow as tf
+from . import Module
+from .. import Embedding, PositionalEncoding
+from .. import LayerNormalization
+from .. import TimeDistributedDense as Dense
+from .. import Activation, Dropout
+
+
+class Transformer(Module):
+    '''
+    Implementation of Transformer model from
+    "Attention Is All You Need",
+    Ashish Vaswani et al.
+    https://arxiv.org/abs/1706.03762
+    '''
+    # TODO: consider dropout
+    def __init__(self,
+                 len_src_vocab,
+                 len_target_vocab,
+                 d_model=512,
+                 d_ff=2048,
+                 N=6,
+                 h=8,
+                 maxlen=6000):
+        self.len_src_vocab = len_src_vocab
+        self.len_target_vocab = len_target_vocab
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.N = N
+        self.h = h
+        self.maxlen = maxlen
+
+    def v1(self, x, **kwargs):
+        x = Embedding(self.d_model, self.len_src_vocab)(x) \
+            + PositionalEncoding(self.d_model, self.maxlen)(x)
+        for n in range(self.N):
+            x = self._encoder_sublayer(x)
+
+        encoder_output = x
+
+        return x
+
+    def _encoder_sublayer(self, x, mask=None):
+        # 1st sub-layer
+        h = self._multi_head_attention(query=x, key=x, value=x, mask=mask)
+        x = LayerNormalization()(h + x)
+
+        # 2nd sub-layer
+        h = self._feed_forward(x)
+        x = LayerNormalization()(h + x)
+
+        return x
+
+    def _multi_head_attention(self, query, key, value, mask=None):
+        d_k = d_v = self.d_k = self.d_v = self.d_model // self.h
+        linears = [Dense(self.d_model, self.d_model) for _ in range(4)]
+        n_batches = tf.shape(query)[0]
+        query, key, value = \
+            [tf.transpose(tf.reshape(l(x),
+                                     shape=[n_batches, -1, self.h, d_k]),
+                          perm=[0, 2, 1, 3])
+             for l, x in zip(linears, (query, key, value))]
+
+        x, attn = self._attention(query, key, value, mask=mask)
+        x = tf.reshape(tf.transpose(x, perm=[0, 2, 1, 3]),
+                       shape=[n_batches, -1, self.h * d_k])
+
+        return linears[-1](x)
+
+    def _feed_forward(self, x):
+        x = Dense(self.d_ff, self.d_model)(x)
+        x = Activation('relu')(x)
+        return Dense(self.d_model, self.d_ff)(x)
+
+    def _attention(self, query, key, value, mask=None):
+        '''
+        Scaled Dot-Product Attention
+        '''
+        d_k = self.d_k
+        score = tf.matmul(query,
+                          tf.transpose(key, perm=[0, 1, 3, 2])) / np.sqrt(d_k)
+        # TODO: mask
+        attn = tf.nn.softmax(score)
+        c = tf.matmul(attn, value)
+
+        return c, attn

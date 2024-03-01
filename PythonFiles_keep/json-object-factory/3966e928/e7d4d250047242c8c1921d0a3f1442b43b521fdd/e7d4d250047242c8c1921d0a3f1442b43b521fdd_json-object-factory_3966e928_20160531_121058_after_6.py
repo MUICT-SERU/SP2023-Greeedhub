@@ -1,0 +1,72 @@
+import sys
+import types
+
+PY2 = sys.version_info.major == 2
+
+def wrap_instance_method(obj, func):
+    if PY2:
+        if func.im_self is None:
+            func = getattr(obj, func.im_func.func_name)
+    else:
+        if not hasattr(func, '__self__'):
+            func = getattr(obj, func.__name__)
+    def wrapper(*args):
+        return func(*args)
+    return wrapper
+
+
+class FactoryWrapper(object):
+    def __init__(self, obj, mode=None, encode_func=None, decode_func=None):
+        self.factory_obj = obj
+        if encode_func is None:
+            encode_func = getattr(obj, 'default', getattr(obj, 'encode', None))
+        if decode_func is None:
+            decode_func = getattr(obj, 'object_hook', getattr(obj, 'decode', None))
+        if isinstance(encode_func, types.MethodType):
+            encode_func = wrap_instance_method(obj, encode_func)
+        if isinstance(decode_func, types.MethodType):
+            decode_func = wrap_instance_method(obj, decode_func)
+        self.encode_func = encode_func
+        self.decode_func = decode_func
+        self.mode = mode
+        self.id = id(obj)
+    def encode(self, o):
+        if self.mode == 'encode':
+            return self.factory_obj(o)
+        elif self.mode != 'decode' and self.encode_func is not None:
+            return self.encode_func(o)
+    def decode(self, d):
+        if self.mode == 'decode':
+            return self.factory_obj(d)
+        elif self.mode != 'encode' and self.decode_func is not None:
+            return self.decode_func(d)
+        return d
+    def __repr__(self):
+        return 'Wrapper for %r' % (self.factory_obj)
+
+
+class Registry_(object):
+    def __init__(self):
+        self.objects = {}
+    def register(self, obj, mode=None):
+        if not isinstance(obj, FactoryWrapper):
+            obj = FactoryWrapper(obj, mode)
+        self.objects[obj.id] = obj
+    def unregister(self, obj):
+        obj_id = id(obj)
+        if obj_id not in self.objects:
+            return
+        del self.objects[obj_id]
+    def encode(self, o):
+        for w in self.objects.values():
+            r = w.encode(o)
+            if r is not None:
+                return r
+    def decode(self, d):
+        for w in self.objects.values():
+            d = w.decode(d)
+            if not isinstance(d, dict):
+                return d
+        return d
+
+Registry = Registry_()

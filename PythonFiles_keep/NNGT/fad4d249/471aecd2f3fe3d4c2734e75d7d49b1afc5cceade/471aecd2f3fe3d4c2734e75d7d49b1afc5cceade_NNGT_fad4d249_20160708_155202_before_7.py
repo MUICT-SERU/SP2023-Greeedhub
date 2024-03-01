@@ -1,0 +1,315 @@
+#!/usr/bin/env python
+#-*- coding:utf-8 -*-
+
+""" Networkx subclassing """
+
+from collections import OrderedDict
+
+import numpy as np
+import scipy.sparse as ssp
+
+import nngt.globals
+from nngt.globals import BWEIGHT
+from nngt.lib import InvalidArgument
+from .base_graph import BaseGraph, BaseProperty
+
+
+
+#-----------------------------------------------------------------------------#
+# Properties
+#------------------------
+#
+
+class _NxNProperty(BaseProperty):
+
+    '''
+    Class for generic interactions with nodes properties (networkx)
+    '''
+
+    def __getitem__(self, name):
+        lst = [self.parent.node[i][name] for i in range(self.parent.node_nb())]
+        return np.array(lst)
+
+    def __setitem__(self, name, value):
+        if len(value) == size:
+            for i in range(self.parent.node_nb()):
+                self.parent.node[i][name] = value[i]
+        else:
+            raise ValueError("A list or a np.array with one entry per node in \
+the graph is required")
+
+    def new_na(self, name, value_type, values=None, val=None):
+        if val is None:
+            if value_type == "int":
+                val = int(0)
+            elif value_type == "double":
+                val = 0.
+            elif value_type == "string":
+                val = ""
+            else:
+                val = None
+        if values is None:
+            values = np.repeat(val, self.parent.node_nb())
+        self[name] = values
+        self.stored[name] = value_type
+        
+class _NxEProperty(BaseProperty):
+
+    ''' Class for generic interactions with edge properties (networkx)  '''
+
+    def __getitem__(self, name):
+        lst = []
+        for e in iter(self.parent._edges.keys()):
+            lst.append(self.parent.edge[e[0]][e[1]][name])
+        return np.array(lst)
+
+    def __setitem__(self, name, value):
+        size = self.parent.edge_nb()
+        if len(value) == size:
+            for i,e in enumerate(self.parent._edges.keys()):
+                self.parent.edge[e[0]][e[1]][name] = value[i]
+        else:
+            raise ValueError("A list or a np.array with one entry per edge in \
+the graph is required")
+
+    def new_ea(self, name, value_type, values=None, val=None):
+        if val is None:
+            if value_type == "int":
+                val = int(0)
+            elif value_type == "double":
+                val = 0.
+            elif value_type == "string":
+                val = ""
+            else:
+                val = None
+        if values is None:
+            values = np.repeat(val, self.parent.ecount())
+        elif len(values) == self.parent.ecount():
+            self[name] = values
+        else:
+            raise ValueError("A list or a np.array with one entry per edge in \
+the graph is required")
+        self.stored[name] = value_type
+
+
+#-----------------------------------------------------------------------------#
+# Graph
+#------------------------
+#
+
+class _NxGraph(BaseGraph):
+
+    '''
+    Subclass of networkx Graph
+    '''
+
+    nattr_class = _NxNProperty
+    eattr_class = _NxEProperty
+
+    #-------------------------------------------------------------------------#
+    # Class properties
+    
+    di_value = { "string": "", "double": 0., "int": int(0) }
+
+    #-------------------------------------------------------------------------#
+    # Constructor and instance properties
+    
+    def __init__(self, nodes=0, g=None, directed=True, weighted=False):
+        self._edges = OrderedDict()
+        self._directed = directed
+        self._weighted = weighted
+        self._nattr = _NxNProperty(self)
+        self._eattr = _NxEProperty(self)
+        super(_NxGraph, self).__init__(g)
+        if g is not None:
+            edges = nngt.globals.analyze_graph["get_edges"](g)
+            for i, edge in enumerate(edges):
+                self._edges[tuple(edge)] = i
+        elif nodes:
+            self.add_nodes_from(range(nodes))
+
+    #-------------------------------------------------------------------------#
+    # Graph manipulation
+    
+    def new_node_attribute(self, name, value_type, values=None, val=None):
+        num_nodes = self.node_nb()
+        if values is None:
+            if val is not None:
+                values = np.repeat(val,num_nodes)
+            else:
+                if vector in value_type:
+                    values = [ [] for _ in range(num_nodes) ]
+                else:
+                    values = np.repeat(self.di_value[value_type], num_nodes)
+        elif len(values) != num_nodes:
+            raise InvalidArgument("'values' list must contain one element per \
+node in the graph.")
+        for n, val in enumerate(values):
+            self.node[n][name] = val
+
+    def new_edge_attribute(self, name, value_type, values=None, val=None):
+        num_edges = self.edge_nb()
+        if values is None:
+            if val is not None:
+                values = np.repeat(val,num_edges)
+            else:
+                if "vec" in value_type:
+                    values = [ [] for _ in range(num_edges) ]
+                else:
+                    values = np.repeat(self.di_value[value_type], num_edges)
+        elif len(values) != num_edges:
+            raise InvalidArgument("'values' list must contain one element per \
+edge in the graph.")
+        for e, val in zip(self.edges_array,values):
+            self.edge[e[0]][e[1]][name] = val
+    
+    def new_node(self, n=1, ntype=1):
+        '''
+        Adding a node to the graph, with optional properties.
+        
+        Parameters
+        ----------
+        n : int, optional (default: 1)
+            Number of nodes to add.
+        ntype : int, optional (default: 1)
+            Type of neuron (1 for excitatory, -1 for inhibitory)
+            
+        Returns
+        -------
+        The node or an iterator over the nodes created.
+        '''
+        tpl_new_nodes = tuple(range(len(self),len(self)+n))
+        for v in tpl_new_nodes:
+            self.add_node(v)
+        if len(tpl_new_nodes) == 1:
+            return tpl_new_nodes[0]
+        else:
+            return tpl_new_nodes
+
+    def new_edge(self, source, target, attributes={}):
+        '''
+        Adding a connection to the graph, with optional properties.
+        
+        Parameters
+        ----------
+        source : :class:`int/node`
+            Source node.
+        target : :class:`int/node`
+            Target node.
+        attributes : :class:`dict`, optional (default: ``{}``)
+            Dictionary containing optional edge properties. If the graph is
+            weighted, defaults to ``{"weight": 1.}``, the unit weight for the
+            connection (synaptic strength in NEST).
+            
+        Returns
+        -------
+        The new connection.
+        '''
+        if self._weighted and "weight" not in attributes:
+            attributes["weight"] = 1.
+        self.add_edge(source, target)
+        self._edges[(source, target)] = self.edge_nb()
+        for key, val in attributes.items:
+            self[source][target][key] = val
+        if not self._directed:
+            self.add_edge(target,source)
+            for key, val in attributes.items:
+                self[target][source][key] = val
+        return (source, target)
+
+    def new_edges(self, edge_list, attributes={}):
+        '''
+        Add a list of edges to the graph.
+        
+        Parameters
+        ----------
+        edge_list : list of 2-tuples or np.array of shape (edge_nb, 2)
+            List of the edges that should be added as tuples (source, target)
+        attributes : :class:`dict`, optional (default: ``{}``)
+            Dictionary containing optional edge properties. If the graph is
+            weighted, defaults to ``{"weight": ones}``, where ``ones`` is an
+            array the same length as the `edge_list` containing a unit weight
+            for each connection (synaptic strength in NEST).
+        
+        warning ::
+            For now attributes works only when adding edges for the first time
+            (i.e. adding edges to an empty graph).
+            
+        @todo: add example, check the edges for self-loops and multiple edges
+        '''
+        e = self.edge_nb()
+        edge_generator = ( e for e in edge_list )
+        edge_list = np.array(edge_list)
+        if self._weighted and "weight" not in attributes:
+            attributes["weight"] = np.repeat(1., len(edge_list))
+        if not self._directed:
+            edge_list = np.concatenate((edge_list, edge_list[:,::-1]))
+            for key, val in attributes.items():
+                attributes[key] = np.concatenate((val, val))
+        for i, edge in enumerate(edge_list):
+            self._edges[tuple(edge)] = e + i
+        for i, (u,v) in enumerate(edge_list):
+            if u not in self.succ:
+                self.succ[u] = self.adjlist_dict_factory()
+                self.pred[u] = self.adjlist_dict_factory()
+                self.node[u] = {}
+            if v not in self.succ:
+                self.succ[v] = self.adjlist_dict_factory()
+                self.pred[v] = self.adjlist_dict_factory()
+                self.node[v] = {}
+            datadict = self.adj[u].get(v, self.edge_attr_dict_factory())
+            datadict.update({ key: val[i] for key, val in attributes.items() })
+            self.succ[u][v] = datadict
+            self.pred[v][u] = datadict
+        return edge_generator
+
+    def clear_all_edges(self):
+        ''' Remove all connections in the graph '''
+        self.remove_edges_from(self.edges_array)
+        self._edges = OrderedDict()
+        self._eattr.clear()
+
+    def set_node_property(self):
+        #@todo: do it...
+        pass
+    
+    #-------------------------------------------------------------------------#
+    # Getters
+    
+    def node_nb(self):
+        return self.number_of_nodes()
+
+    def edge_nb(self):
+        return self.size() if self._directed else 2*self.size()
+    
+    def degree_list(self, node_list=None, deg_type="total", use_weights=False):
+        weight = 'weight' if use_weights else None
+        di_deg = None
+        if deg_type == 'total':
+            di_deg = self.degree(node_list, weight=weight)
+        elif deg_type == 'in':
+            di_deg = self.in_degree(node_list, weight=weight)
+        else:
+            di_deg = self.out_degree(node_list, weight=weight)
+        return np.array(tuple(di_deg.values()))
+
+    def betweenness_list(self, btype="both", use_weights=False, **kwargs):
+        di_nbetw, di_ebetw = None, None
+        w = BWEIGHT if use_weights else None
+        if btype in ("both", "node"):
+            di_nbetw = nngt.globals.config["library"].betweenness_centrality(self,
+                                                                weight=BWEIGHT)
+        if btype in ("both", "edge"):
+            di_ebetw = nngt.globals.config["library"].edge_betweenness_centrality(self,
+                                                                weight=BWEIGHT)
+        else:
+            di_nbetw = nngt.globals.config["library"].betweenness_centrality(self)
+            di_ebetw = nngt.globals.config["library"].edge_betweenness_centrality(self)
+        if btype == "node":
+            return np.array(tuple(di_nbetw.values()))
+        elif btype == "edge":
+            return np.array(tuple(di_ebetw.values()))
+        else:
+            return ( np.array(tuple(di_nbetw.values())),
+                     np.array(tuple(di_ebetw.values())) )
+

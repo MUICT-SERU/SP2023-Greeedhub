@@ -1,0 +1,118 @@
+"""Tests for models for generic Python functions"""
+
+from dlhub_toolbox.models.servables.python import PythonClassMethodModel, \
+    PythonStaticMethodModel
+from dlhub_toolbox import __dlhub_version__
+from sklearn import __version__ as skl_version
+from datetime import datetime
+import unittest
+import math
+import os
+
+from dlhub_toolbox.utils.schemas import validate_against_dlhub_schema
+
+
+_year = str(datetime.now().year)
+
+
+class TestPythonModels(unittest.TestCase):
+
+    maxDiff = 4096
+
+    def test_pickle(self):
+        pickle_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'model.pkl'))
+
+        # Make the model
+        model = PythonClassMethodModel(pickle_path, 'predict_proba', {'fake': 'kwarg'})
+        model.set_title('Python example').set_name("class_method")
+
+        # Make sure it throws value errors if inputs are not set
+        with self.assertRaises(ValueError):
+            model.to_dict()
+
+        # Define the input and output types
+        model.set_inputs('ndarray', 'Features for each entry', shape=[None, 4])
+        model.set_outputs('ndarray', 'Predicted probabilities of being each iris species',
+                          shape=[None, 3])
+
+        # Add some requirements
+        model.add_requirement('scikit-learn', 'detect')
+        model.add_requirement('pytorch', 'latest')  # Deprecated project, version should stay same
+
+        # Check the model output
+        output = model.to_dict()
+        self.assertEqual(output,
+                         {'datacite':
+                              {'creators': [], 'titles': [{'title': 'Python example'}],
+                               'publisher': 'DLHub',
+                               'resourceType': {'resourceTypeGeneral': 'InteractiveResource'},
+                               'identifier': {'identifier': '10.YET/UNASSIGNED',
+                                              'identifierType': 'DOI'},
+                               'publicationYear': _year
+                               },
+                          'dlhub': {'version': '0.1', 'domain': "", 'visible_to': ['public'],
+                                    "id": None, "name": "class_method"},
+                          'servable': {'language': 'python', 'type': 'Python class method',
+                                       'files': {'pickle': pickle_path, 'other': []},
+                                       'shim': 'python.PythonClassMethodServable',
+                                       'methods': {'run': {'input': {'type': 'ndarray',
+                                                                     'description': 'Features for each entry',
+                                                                     'shape': [None, 4]},
+                                                           'output': {'type': 'ndarray',
+                                                                      'description': 'Predicted probabilities of being each iris species',
+                                                                      'shape': [None, 3]},
+                                                           'parameters': {'fake': 'kwarg'},
+                                                           'method_details': {
+                                                               'class_name': 'sklearn.svm.classes.SVC',
+                                                               'method_name': 'predict_proba'},
+                                                           }},
+                                       'dependencies': {
+                                           'python': {
+                                               'scikit-learn': skl_version,
+                                               'pytorch': '0.1.2'
+                                           }}
+                          }})
+        self.assertEqual([pickle_path], model.list_files())
+        validate_against_dlhub_schema(output, 'servable')
+
+    def test_function(self):
+        f = math.sqrt
+
+        # Make the model
+        model = PythonStaticMethodModel.from_function_pointer(f, autobatch=True)
+        model.set_name("static_method").set_title('Python example')
+
+        # Describe the inputs/outputs
+        model.set_inputs('list', 'List of numbers', item_type='float')
+        model.set_outputs('float', 'Square root of the number')
+
+        # Generate the output
+        output = model.to_dict()
+        self.assertEqual(output,
+                         {'datacite':
+                              {'creators': [], 'titles': [{'title': 'Python example'}],
+                               'publisher': 'DLHub',
+                               'resourceType': {'resourceTypeGeneral': 'InteractiveResource'},
+                               'identifier': {'identifier': '10.YET/UNASSIGNED',
+                                              'identifierType': 'DOI'},
+                               'publicationYear': _year
+                           },
+                          'dlhub': {'version': __dlhub_version__, 'domain': '', 'visible_to': ['public'],
+                                    "id": None, "name": "static_method"},
+                          'servable': {'language': 'python', 'type': 'Python static method',
+                                       'shim': 'python.PythonStaticMethodServable',
+                                       'methods': {'run': {'input': {'type': 'list',
+                                                                     'description': 'List of numbers',
+                                                                     'item_type': {
+                                                                         'type': 'float'}},
+                                                           'output': {'type': 'float',
+                                                                      'description': 'Square root of the number'},
+                                                           'parameters': {},
+                                                           'method_details': {'module': 'math',
+                                                                              'method_name': 'sqrt',
+                                                                              'autobatch': True}}
+                                                   },
+                                       'files': {'other': []},
+                                       'dependencies': {'python': {}}}
+                          })
+        validate_against_dlhub_schema(output, 'servable')

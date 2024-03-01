@@ -1,0 +1,73 @@
+import sys
+import os
+import strlearn
+import sphinx
+from sklearn.externals.six import u
+
+import sphinx_rtd_theme
+
+html_theme = "sphinx_rtd_theme"
+html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+
+sys.path.insert(0, os.path.abspath(".."))
+sys.path.insert(0, os.path.abspath("sphinxext"))
+
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.doctest",
+    # "sphinx.ext.intersphinx",
+    # "sphinx.ext.todo",
+    "sphinx.ext.autosummary",
+    # "numpydoc",
+    # "sphinx.ext.ifconfig",
+    # "sphinx.ext.viewcode",
+    # "sphinx_gallery.gen_gallery",
+]
+
+numpydoc_show_class_members = False
+
+autodoc_default_flags = ["members", "inherited-members"]
+
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ["_templates"]
+
+# generate autosummary even if no references
+autosummary_generate = True
+
+# Generate the plots for the gallery
+# plot_gallery = False
+
+# The master toctree document.
+master_doc = "index"
+
+# General information about the project.
+project = u"stream-learn"
+copyright = u"2019, P. Ksieniewicz, P. Zyblewski"
+
+version = strlearn.__version__
+release = strlearn.__version__
+
+# The name of the Pygments (syntax highlighting) style to use.
+# pygments_style = 'sphinx'
+
+
+# -- Options for HTML output ----------------------------------------------
+"""
+html_theme_options = {
+    'logo': 'logo.png',
+    'logo_name': True,
+    'description': 'Python package equipped with a procedures to process data streams using estimators with API compatible with scikit-learn.',
+    'github_button': True,
+    'travis_button': False,
+    'show_powered_by': False,
+    'github_user': 'w4k2',
+    'github_repo': 'stream-learn',
+}
+"""
+html_static_path = ["_static"]
+htmlhelp_basename = "stream-learndoc"
+
+
+def setup(app):
+    pass
+    # app.connect('autodoc-process-docstring', generate_example_rst)
