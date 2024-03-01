@@ -1,0 +1,50 @@
+import re
+import warnings
+
+from . import builder, runner, cc, jvm
+from .. import shell
+from .common import choose_builder
+from ..builtins.write_file import WriteFile
+from ..file_types import Executable, JvmClassList, ObjectFile
+from ..languages import language
+
+language('java', src_exts=['.java'])
+language('scala', src_exts=['.scala'])
+
+_vars = {
+    'java' : ('JAVAC' , 'JAVAFLAGS' ),
+    'scala': ('SCALAC', 'SCALAFLAGS'),
+}
+_default_cmds = {
+    'java' : ['javac', 'gcj'],
+    'scala': 'scalac',
+}
+
+_builders = (jvm.JvmBuilder, cc.CcBuilder)
+
+
+@runner('java', 'scala')
+def run_java(env, lang, file):
+    runner = env.builder(lang).runner
+    if not runner:
+        return
+
+    if isinstance(file, Executable):
+        return runner(file, jar=True)
+    elif isinstance(file, JvmClassList):
+        return runner(file.object_file)
+    elif isinstance(file, ObjectFile):
+        return runner(file)
+    else:
+        raise TypeError('expected an executable or object file for {} to run'
+                        .format(lang))
+
+
+@builder('java', 'scala')
+def java_builder(env, lang):
+    var, flags_var = _vars[lang]
+    candidates = env.getvar(var, _default_cmds[lang])
+
+    flags = shell.split(env.getvar(flags_var, ''))
+    return choose_builder(env, lang, candidates, _builders, var.lower(),
+                          flags_var.lower(), flags)

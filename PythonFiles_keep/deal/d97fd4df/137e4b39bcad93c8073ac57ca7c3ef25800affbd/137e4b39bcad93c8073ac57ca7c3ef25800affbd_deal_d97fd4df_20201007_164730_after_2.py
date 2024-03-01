@@ -1,0 +1,80 @@
+import deal
+import pytest
+
+
+def test_source_get_lambda_from_dec():
+    @deal.pre(lambda x: x > 0)
+    def f(x):
+        pass
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        f(-2)
+    assert exc_info.value.source == 'x > 0'
+
+
+def test_source_get_lambda_from_var():
+    # autopep8: off
+    c = lambda x: x > 0 # noqa
+    # autopep8: on
+
+    @deal.pre(c)
+    def f(x):
+        pass
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        f(-2)
+    assert exc_info.value.source == 'x > 0'
+
+
+def test_source_get_lambda_with_braces():
+    @deal.pre(lambda x: (x + 1) > (0 + 1))
+    def f(x):
+        pass
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        f(-2)
+    assert exc_info.value.source == '(x + 1) > (0 + 1)'
+
+
+def test_source_get_lambda_multiline_dec():
+    @deal.pre(
+        lambda x: x > 0,
+    )
+    def f(x):
+        pass
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        f(-2)
+    assert exc_info.value.source == 'x > 0'
+
+
+def test_source_get_lambda_from_many():
+    @deal.pre(lambda x: x > -10)
+    @deal.pre(lambda x: x > 0)
+    @deal.pre(lambda x: x > -20)
+    def f(x):
+        pass
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        f(-2)
+    assert exc_info.value.source == 'x > 0'
+
+
+def test_source_get_chain():
+    sum_contract = deal.chain(
+        deal.pre(lambda a, b: a > 0),
+        deal.pre(lambda a, b: b > 0),
+        deal.post(lambda res: res > 0),
+    )
+
+    @sum_contract
+    def sum(a, b):
+        return a + b
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        sum(-2, 3)
+    assert exc_info.value.source == 'a > 0'
+
+    with pytest.raises(deal.ContractError) as exc_info:
+        sum(2, -3)
+    assert exc_info.value.source == 'b > 0'

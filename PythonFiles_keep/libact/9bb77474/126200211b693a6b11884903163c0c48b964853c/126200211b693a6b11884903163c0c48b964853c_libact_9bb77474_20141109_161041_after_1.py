@@ -1,0 +1,3 @@
+"""
+Concrete labeler classes.
+"""

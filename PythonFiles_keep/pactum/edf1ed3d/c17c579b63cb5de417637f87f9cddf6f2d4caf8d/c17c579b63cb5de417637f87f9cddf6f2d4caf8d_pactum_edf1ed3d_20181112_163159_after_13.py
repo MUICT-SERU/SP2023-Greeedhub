@@ -1,0 +1,74 @@
+import pytest
+
+from pactum.version import Version
+from pactum.resource import Resource
+
+
+def test_basic_version_with_routes():
+    version = Version(
+        name="1.0",
+        routes=[],
+    )
+
+    assert version.name == "1.0"
+    assert len(version.routes) == 0
+
+
+def test_basic_version_with_resources():
+    version = Version(
+        name="1.0",
+        resources=[],
+    )
+
+    assert version.name == "1.0"
+    assert len(version.resources) == 0
+
+
+def test_fail_version_with_routes_and_resources():
+    with pytest.raises(TypeError):
+        Version(name="v0", routes=[], resources=[])
+
+
+def test_fail_if_no_routes_and_no_version():
+    with pytest.raises(TypeError):
+        Version(name="v1")
+
+
+def test_append_route(route):
+    version = Version(
+        name="1.0",
+        routes=[],
+    )
+
+    version.append(route)
+    assert len(version.routes) == 1
+
+
+def test_append_resources():
+    version = Version(
+        name="1.0",
+        resources=[],
+    )
+
+    version.append(Resource())
+    assert len(version.resources) == 1
+
+
+def test_append_route_fails_if_there_are_resources(route):
+    version = Version(
+        name="1.0",
+        resources=[],
+    )
+
+    with pytest.raises(TypeError):
+        version.append(route)
+
+
+def test_append_resource_fails_if_there_are_routes():
+    version = Version(
+        name="1.0",
+        routes=[],
+    )
+
+    with pytest.raises(TypeError):
+        version.append(Resource())

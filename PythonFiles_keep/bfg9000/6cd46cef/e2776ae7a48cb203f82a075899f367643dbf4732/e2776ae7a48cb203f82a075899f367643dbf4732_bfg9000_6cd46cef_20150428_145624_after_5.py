@@ -1,0 +1,97 @@
+import os
+import shlex
+
+import utils
+
+class CcCompiler(object):
+    def __init__(self):
+        self.command_name = os.getenv('CC', 'cc')
+        self.command_var = 'cc'
+        self.name = 'cc'
+
+        self.global_args = (
+            shlex.split(os.getenv('CFLAGS', ''), posix=False) +
+            shlex.split(os.getenv('CPPFLAGS', ''), posix=False)
+        )
+
+    def command(self, cmd, input, output, dep=None, args=None):
+        result = [cmd]
+        result.extend(utils.listify(args))
+        result.extend(['-c', input])
+        if dep:
+            result.extend(['-MMD', '-MF', dep])
+        result.extend(['-o', output])
+        return result
+
+    def output_name(self, basename):
+        # TODO: Support other platform naming schemes
+        return basename + '.o'
+
+    @property
+    def library_args(self):
+        return ['-fPIC']
+
+    def include_dir(self, directory):
+        return ['-I' + directory]
+
+class CcLinker(object):
+    def __init__(self, mode):
+        self.command_name = os.getenv('CC', 'cc')
+        self.command_var = 'cc'
+        self.link_var = 'ld'
+        self._mode = mode
+        self.name = 'link_cc'
+
+        self.global_args = shlex.split(os.getenv('LDFLAGS', ''), posix=False)
+
+    def command(self, cmd, input, output, libs=None, args=None):
+        result = [cmd]
+        result.extend(utils.listify(args))
+        result.extend(utils.listify(input))
+        result.extend(utils.listify(libs))
+        result.extend(['-o', output])
+        return result
+
+    def output_name(self, basename):
+        # TODO: Support other platform naming schemes
+        if self._mode == 'shared_library':
+            return 'lib' + basename + '.so'
+        else:
+            return basename
+
+    @property
+    def mode_args(self):
+        return ['-shared', '-fPIC'] if self._mode == 'shared_library' else []
+
+    def lib_dir(self, directory):
+        return ['-L' + directory]
+
+    def link_lib(self, library):
+        return ['-l' + library]
+
+    def rpath(self, paths):
+        rpath = ':'.join(os.path.join('$ORIGIN', i) for i in paths)
+        if not rpath:
+            return []
+        return ["-Wl,-rpath='{}'".format(rpath)]
+
+class CxxCompiler(CcCompiler):
+    def __init__(self):
+        self.command_name = os.getenv('CXX', 'c++')
+        self.command_var = 'cxx'
+        self.name = 'cxx'
+
+        self.global_args = (
+            shlex.split(os.getenv('CXXFLAGS', ''), posix=False) +
+            shlex.split(os.getenv('CPPFLAGS', ''), posix=False)
+        )
+
+class CxxLinker(CcLinker):
+    def __init__(self, mode):
+        self.command_name = os.getenv('CXX', 'c++')
+        self.command_var = 'cxx'
+        self.link_var = 'ld'
+        self._mode = mode
+        self.name = 'link_cxx'
+
+        self.global_args = shlex.split(os.getenv('LDFLAGS', ''), posix=False)

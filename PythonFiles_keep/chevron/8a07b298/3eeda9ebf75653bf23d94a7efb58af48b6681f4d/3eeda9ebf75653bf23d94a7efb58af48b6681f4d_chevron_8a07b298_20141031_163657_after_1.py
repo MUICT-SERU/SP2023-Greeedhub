@@ -1,0 +1,99 @@
+#!/usr/bin/python
+
+from sys import argv
+from io import StringIO
+
+
+def tokenize(template):
+    class UnclosedSection(Exception):
+        pass
+
+    def get(amount=1):
+        return template.read(amount)
+
+    def peek(ahead=0, amount=1):
+        current = template.tell()
+        template.seek(current + ahead)
+        data = template.read(amount)
+        template.seek(current)
+        if len(data) != amount:
+            raise EOFError()
+        return data
+
+    tag_types = {
+        '!': 'comment',
+        '#': 'section',
+        '^': 'inverted section',
+        '/': 'end',
+        '>': 'partial',
+        '=': 'set delimiter?',
+        '{': 'no escape?',
+        '&': 'no escape'
+    }
+
+    if type(template) is str:
+        template = StringIO(template)
+
+    open_sections = []
+    l_del = '{{'
+    r_del = '}}'
+    while not template.closed:
+        try:
+            size = 0
+            while peek(size, 2) != l_del:
+                size += 1
+        except EOFError:
+            yield ('literal', get(size))
+            return
+
+        if size != 0:
+            yield ('literal', get(size))
+
+        get(2)
+
+        tag_type = tag_types.get(peek(0, 1), 'variable')
+        if tag_type != 'variable':
+            template.seek(template.tell() + 1)
+
+        size = 0
+        while peek(size, 2) != r_del:
+            size += 1
+
+        tag_key = get(size).strip()
+
+        if tag_type == 'no escape?':
+            if peek(0, 3) == '}}}':
+                tag_type = 'no escape'
+                get(1)
+
+        elif tag_type == 'set delimiter?':
+            if tag_key[-1] == '=':
+                l_del, r_del = tag_key[:-1].split(' ')
+                get(2)
+                continue
+
+        elif tag_type in ['section', 'inverted section']:
+            open_sections.append(tag_key)
+
+        elif tag_type == 'end':
+            last_section = open_sections.pop()
+            if tag_key != last_section:
+                raise UnclosedSection()
+
+        get(2)
+        yield (tag_type, tag_key)
+
+    if open_sections:
+        raise UnclosedSection()
+
+    return
+
+
+if __name__ == '__main__':
+    data = argv[1]
+    template = argv[2]
+
+    tokens = tokenize(open(template, 'r'))
+
+    for token in tokens:
+        print(token)

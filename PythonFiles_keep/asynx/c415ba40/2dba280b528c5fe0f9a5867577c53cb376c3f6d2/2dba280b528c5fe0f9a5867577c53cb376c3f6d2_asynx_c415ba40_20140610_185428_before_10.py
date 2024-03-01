@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+
+from uuid import UUID
+
+import voluptuous as v
+from voluptuous import Schema, Required, All, Any, Coerce
+
+
+def NestedSchema(schema_name, msg=None):
+
+    def f(val):
+        schema = globals()[schema_name]
+        return v.Marker(schema.schema, msg)(val)
+    return f
+
+
+def Http(val):
+    return v.Match('(?i)^https?://')(val)
+
+
+def IdentifierKind(kind):
+
+    def f(val):
+        return (kind, val)
+    return f
+
+try:
+    String = Any(unicode, str, msg='expected string')
+except NameError:
+    String = str
+
+list_tasks_form = Schema({
+    Required('offset', default=0): Coerce(int),
+    Required('limit', default=50): All(Coerce(int), v.Range(min=0, max=200))
+})
+
+add_task_form = Schema({
+    Required('request'): {
+        Required('method', default='GET'): v.Upper,
+        Required('url'): Http,
+        'headers': {String: String},
+        'payload': String,
+        'timeout': int,
+        'allow_redirects': bool
+    },
+    'cname': String,
+    'countdown': All(Coerce(float), v.Range(.0)),
+    'eta': All(Coerce(float), v.Range(.0)),
+    Any('on_success', 'on_failure', 'on_complete'):
+    Any('__report__', Http, NestedSchema('add_task_form'))
+})
+
+identifier_form = Schema(
+    Any(
+        All(v.Replace('^id:', ''), Coerce(int),
+            v.Range(max=2 ** 63 - 1), Coerce(IdentifierKind('id'))),
+        All(v.Match('^uuid:'), v.Replace('^uuid:', ''), Coerce(UUID),
+            Coerce(str), Coerce(IdentifierKind('uuid'))),
+        All(v.Match('^cname:'), v.Replace('^cname:', ''),
+            v.Length(min=3, max=96), Coerce(IdentifierKind('cname')))
+    )
+)

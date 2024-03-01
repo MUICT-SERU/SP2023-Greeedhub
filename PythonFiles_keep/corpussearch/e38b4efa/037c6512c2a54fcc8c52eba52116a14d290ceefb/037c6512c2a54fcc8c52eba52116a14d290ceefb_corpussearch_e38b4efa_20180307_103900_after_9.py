@@ -1,0 +1,57 @@
+from setuptools import setup, find_packages
+
+setup(
+    # Application name:
+    name="corpussearch",
+
+    # Version number (initial):
+    version="0.0.1",
+
+    # Application author details:
+    author="Malte Vogl",
+    author_email="mvogl@mpiwg-berlin.mpg.de",
+
+    # Packages
+    packages=["corpussearch"],
+
+    # Include additional files into the package
+    include_package_data=True,
+
+    # Details
+    url="http://pypi.python.org/pypi/corpussearch/",
+
+    license="LICENSE.txt",
+    description="Tools for loading and analyzing large text corpora.",
+
+    long_description=open("README.txt").read(),
+
+    classifiers=[
+        # How mature is this project?
+        'Development Status :: 3 - Alpha',
+
+        # Indicate who your project is intended for
+        'Intended Audience :: Researchers',
+        'Topic :: Analysis :: Text',
+        'Topic :: Analysis :: Corpora',
+
+        # Pick your license as you wish
+         'License :: CC4',
+
+        # Specify the Python versions you support here.
+        'Programming Language :: Python :: 3',
+    ],
+    project_urls={
+        'Documentation':
+            'https://packaging.python.org/tutorials/distributing-packages/',
+        'Source': 'https://github.com/maltevogl/corpussearch/',
+        'Tracker': 'https://github.com/maltevogl/corpussearch/issues',
+    },
+
+
+    python_requires='>=3',
+
+    # Dependent packages (distributions)
+    install_requires=[
+        "pandas",
+    ],
+)

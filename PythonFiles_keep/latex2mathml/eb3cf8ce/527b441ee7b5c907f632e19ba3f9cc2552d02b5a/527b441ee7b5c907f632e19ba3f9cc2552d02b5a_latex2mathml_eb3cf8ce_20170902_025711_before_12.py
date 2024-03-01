@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+import unittest
+from latex2mathml import element, converter
+
+__author__ = "Ronie Martinez"
+__copyright__ = "Copyright 2016-2017, Ronie Martinez"
+__credits__ = ["Ronie Martinez"]
+__license__ = "MIT"
+__maintainer__ = "Ronie Martinez"
+__email__ = "ronmarti18@gmail.com"
+__status__ = "Development"
+
+
+class ConverterTest(unittest.TestCase):
+
+    def setUp(self):
+        self.math = element.Element('math')
+        self.math.pretty = True
+        self.row = self.math.append_child('mrow')
+
+    def test_single_identifier(self):
+        self.row.append_child('mi', 'x')
+        self.assertEqual(str(self.math), converter.convert('x'))
+
+    def test_multiple_identifiers(self):
+        self.row.append_child('mi', 'x')
+        self.row.append_child('mi', 'y')
+        self.row.append_child('mi', 'z')
+        self.assertEqual(str(self.math), converter.convert('xyz'))
+
+    def test_single_number(self):
+        self.row.append_child('mn', 3)
+        self.assertEqual(str(self.math), converter.convert('3'))
+
+    def test_multiple_numbers(self):
+        self.row.append_child('mn', 333)
+        self.assertEqual(str(self.math), converter.convert('333'))
+
+    def test_decimal_numbers(self):
+        self.row.append_child('mn', 12.34)
+        self.assertEqual(str(self.math), converter.convert('12.34'))
+
+    def test_numbers_and_identifiers(self):
+        self.row.append_child('mn', 12)
+        self.row.append_child('mi', 'x')
+        self.assertEqual(str(self.math), converter.convert('12x'))
+
+    def test_single_operator(self):
+        self.row.append_child('mo', '&#x0002B;')
+        self.assertEqual(str(self.math), converter.convert('+'))
+
+    def test_numbers_and_operators(self):
+        self.row.append_child('mn', 3)
+        self.row.append_child('mo', '&#x02212;')
+        self.row.append_child('mn', 2)
+        self.assertEqual(str(self.math), converter.convert('3-2'))
+
+    def test_numbers_and_identifiers_and_operators(self):
+        self.row.append_child('mn', 3)
+        self.row.append_child('mi', 'x')
+        self.row.append_child('mo', '&#x0002A;')
+        self.row.append_child('mn', 2)
+        self.assertEqual(str(self.math), converter.convert('3x*2'))
+
+    def test_single_group(self):
+        self.row.append_child('mrow').append_child('mi', 'a')
+        self.assertEqual(str(self.math), converter.convert('{a}'))
+
+    def test_multiple_groups(self):
+        self.row.append_child('mrow').append_child('mi', 'a')
+        self.row.append_child('mrow').append_child('mi', 'b')
+        self.assertEqual(str(self.math), converter.convert('{a}{b}'))
+
+    def test_inner_group(self):
+        row = self.row.append_child('mrow')
+        row.append_child('mi', 'a')
+        row.append_child('mo', '&#x0002B;')
+        row.append_child('mrow').append_child('mi', 'b')
+        self.assertEqual(str(self.math), converter.convert('{a+{b}}'))
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

@@ -1,0 +1,265 @@
+import pytest
+import logging
+from pkg_resources import parse_version
+from .fixtures import (host_manager, ansible_module, ansible_facts)
+from .host_manager import get_host_manager
+
+import ansible
+import ansible.constants
+import ansible.utils
+import ansible.errors
+from ansible.inventory import Inventory
+
+
+has_ansible_v2 = parse_version(ansible.__version__) >= parse_version('2.0.0')
+
+try:
+    from logging import NullHandler
+except ImportError:
+    from logging import Handler
+
+    class NullHandler(Handler):
+
+        def emit(self, record):
+            pass
+log = logging.getLogger(__name__)
+log.addHandler(NullHandler())
+
+# Silence linters for imported fixtures
+(host_manager, ansible_module, ansible_facts)
+
+
+def pytest_addoption(parser):
+    '''Add options to control ansible.'''
+    log.debug("pytest_addoption() called")
+
+    group = parser.getgroup('pytest-ansible')
+    group.addoption('--ansible-inventory',
+                    action='store',
+                    dest='ansible_inventory',
+                    default=ansible.constants.DEFAULT_HOST_LIST,
+                    metavar='ANSIBLE_INVENTORY',
+                    help='ansible inventory file URI (default: %default)')
+    group.addoption('--ansible-host-pattern',
+                    action='store',
+                    dest='ansible_host_pattern',
+                    default=None,
+                    metavar='ANSIBLE_HOST_PATTERN',
+                    help='ansible host pattern (default: %default)')
+    group.addoption('--ansible-connection',
+                    action='store',
+                    dest='ansible_connection',
+                    default=ansible.constants.DEFAULT_TRANSPORT,
+                    help="connection type to use (default: %default)")
+    group.addoption('--ansible-user',
+                    action='store',
+                    dest='ansible_user',
+                    default=ansible.constants.DEFAULT_REMOTE_USER,
+                    help='connect as this user (default: %default)')
+    group.addoption('--ansible-debug',
+                    action='store_true',
+                    dest='ansible_debug',
+                    default=getattr(ansible.constants, 'DEFAULT_DEBUG', False),
+                    help='enable ansible connection debugging')
+    group.addoption('--ansible-module-path',
+                    action='store',
+                    dest='ansible_module_path',
+                    default=ansible.constants.DEFAULT_MODULE_PATH,
+                    help='specify path(s) to module library (default: %default)')
+
+    # classic privilege escalation
+    group.addoption('--ansible-sudo',
+                    action='store_true',
+                    dest='ansible_sudo',
+                    default=ansible.constants.DEFAULT_SUDO,
+                    help='run operations with sudo [nopasswd] (default: %default) (deprecated, use become)')
+    group.addoption('--ansible-sudo-user',
+                    action='store',
+                    dest='ansible_sudo_user',
+                    default='root',
+                    help='desired sudo user (default: %default) (deprecated, use become)')
+
+    # become privilege escalation
+    group.addoption('--ansible-become',
+                    action='store_true',
+                    dest='ansible_become',
+                    default=ansible.constants.DEFAULT_BECOME,
+                    help='run operations with become, nopasswd implied (default: %default)')
+    group.addoption('--ansible-become-method',
+                    action='store',
+                    dest='ansible_become_method',
+                    default=ansible.constants.DEFAULT_BECOME_METHOD,
+                    help="privilege escalation method to use (default: %%default), valid choices: [ %s ]" % (' | '.join(ansible.constants.BECOME_METHODS)))
+    group.addoption('--ansible-become-user',
+                    action='store',
+                    dest='ansible_become_user',
+                    default=ansible.constants.DEFAULT_BECOME_USER,
+                    help='run operations as this user (default: %default)')
+
+    # Add github marker to --help
+    parser.addini("ansible", "Ansible integration", "args")
+
+
+def pytest_configure(config):
+    '''
+    Validate --ansible-* parameters.
+    '''
+    log.debug("pytest_configure() called")
+
+    config.addinivalue_line("markers", "ansible(**kwargs): Ansible integration")
+
+    # Enable connection debugging
+    if config.getvalue('ansible_debug'):
+        if has_ansible_v2:
+            from ansible.utils.display import Display
+            display = Display()
+            display.verbosity = 5
+        else:
+            ansible.utils.VERBOSITY = 5
+
+    assert config.pluginmanager.register(PyTestAnsiblePlugin(config), "ansible")
+
+
+class PyTestAnsiblePlugin:
+
+    def __init__(self, config):
+        log.debug("PyTestAnsiblePlugin initialized")
+        self.config = config
+
+    def assert_required_ansible_parameters(self):
+        '''Helper method to assert whether the required --ansible-* parameters were
+        provided.
+        '''
+
+        errors = []
+
+        # Verify --ansible-host-pattern was provided
+        ansible_hostname = self.config.getvalue('ansible_host_pattern')
+        if ansible_hostname is None or ansible_hostname == '':
+            errors.append("Missing required parameter --ansible-host-pattern")
+
+        # NOTE: I don't think this will ever catch issues since ansible_inventory
+        # defaults to '/etc/ansible/hosts'
+        # Verify --ansible-inventory was provided
+        ansible_inventory = self.config.getvalue('ansible_inventory')
+        if ansible_inventory is None or ansible_inventory == "":
+            errors.append("Unable to find an inventory file, specify one with the --ansible-inventory parameter.")
+
+        if errors:
+            raise pytest.UsageError(*errors)
+
+    def pytest_generate_tests(self, metafunc):
+        log.debug("pytest_generate_tests() called")
+
+        if 'ansible_host' in metafunc.fixturenames:
+            # assert required --ansible-* parameters were used
+            self.assert_required_ansible_parameters()
+            # TODO: this doesn't support function/cls fixture overrides
+            try:
+                inventory_manager = Inventory(self.config.getvalue('ansible_inventory'))
+            except ansible.errors.AnsibleError, e:
+                raise pytest.UsageError(e)
+            pattern = self.config.getvalue('ansible_host_pattern')
+            metafunc.parametrize("ansible_host", inventory_manager.list_hosts(pattern))
+        if 'ansible_group' in metafunc.fixturenames:
+            # assert required --ansible-* parameters were used
+            self.assert_required_ansible_parameters()
+            try:
+                inventory_manager = Inventory(self.config.getvalue('ansible_inventory'))
+            except ansible.errors.AnsibleError, e:
+                raise pytest.UsageError(e)
+            metafunc.parametrize("ansible_group", inventory_manager.list_groups())
+
+    def pytest_report_header(self, config, startdir):
+        log.debug("pytest_report_header() called")
+
+        return 'ansible: %s' % ansible.__version__
+
+    def pytest_collection_modifyitems(self, session, config, items):
+        '''
+        Validate --ansible-* parameters.
+        '''
+        log.debug("pytest_collection_modifyitems() called")
+
+        uses_ansible_fixtures = False
+        for item in items:
+            if not hasattr(item, 'fixturenames'):
+                continue
+            if any([fixture.startswith('ansible_') for fixture in item.fixturenames]):
+                # TODO - ignore if they are using a marker
+                # marker = item.get_marker('ansible')
+                # if marker and 'inventory' in marker.kwargs:
+                uses_ansible_fixtures = True
+                break
+
+        if uses_ansible_fixtures:
+            # assert required --ansible-* parameters were used
+            self.assert_required_ansible_parameters()
+
+    # def pytest_collection_modifyitems(session, config, items):
+    #     reporter = config.pluginmanager.getplugin("terminalreporter")
+    #     reporter.write("ansible: %s\n" % ansible.__version__)
+
+    def _load_ansible_config(self, request):
+        '''Load ansible configuration from command-line and decorator kwargs.'''
+
+        # List of config parameter names
+        option_names = ['ansible_inventory', 'ansible_host_pattern', 'ansible_connection', 'ansible_user',
+                        'ansible_sudo', 'ansible_sudo_user', 'ansible_module_path', 'ansible_become',
+                        'ansible_become_method', 'ansible_become_user']
+
+        # Remember the pytest request attr
+        kwargs = dict(__request__=request)
+
+        # Load command-line supplied values
+        for key in option_names:
+            short_key = key[8:]
+            kwargs[short_key] = request.config.getvalue(key)
+
+        # Override options from @pytest.mark.ansible
+        marker_kwargs = self._get_marker_kwargs(request)
+
+        # Merge marker_kwargs with kwargs
+        if marker_kwargs:
+            for short_key in kwargs.keys():
+                if short_key in marker_kwargs:
+                    kwargs[short_key] = marker_kwargs[short_key]
+                    log.debug("ansible marker override %s:%s" % (short_key, kwargs[short_key]))
+
+        # Was this fixture called in conjunction with a parametrized fixture
+        if 'ansible_host' in request.fixturenames:
+            kwargs['host_pattern'] = request.getfuncargvalue('ansible_host')
+        elif 'ansible_group' in request.fixturenames:
+            kwargs['host_pattern'] = request.getfuncargvalue('ansible_group')
+
+        # normalize ansible.ansible_become options
+        kwargs['become'] = kwargs['become'] or kwargs['sudo'] or \
+            ansible.constants.DEFAULT_BECOME
+        kwargs['become_user'] = kwargs['become_user'] or kwargs['sudo_user'] or \
+            ansible.constants.DEFAULT_BECOME_USER
+        # kwargs['become_ask_pass'] = kwargs.get('become_ask_pass', kwargs.get('ask_sudo_pass', kwargs.get('ask_su_pass', ansible.constants.DEFAULT_BECOME_ASK_PASS)))  # NOQA
+
+        log.debug("kwargs: %s" % kwargs)
+        return kwargs
+
+    def _get_marker_kwargs(self, request):
+        '''Returns a dictionary of the ansible parameters supplied to the ansible marker.'''
+
+        if request.scope == 'function':
+            if hasattr(request.function, 'ansible'):
+                return request.function.ansible.kwargs
+        elif request.scope == 'class':
+            if hasattr(request.cls, 'pytestmark'):
+                for pytestmark in request.cls.pytestmark:
+                    if pytestmark.name == 'ansible':
+                        return pytestmark.kwargs
+                    else:
+                        continue
+        return {}
+
+    def initialize(self, request, **kwargs):
+        '''Returns an initialized Ansible Host Manager instance
+        '''
+        ansible_cfg = self._load_ansible_config(request)
+        ansible_cfg.update(kwargs)
+        return get_host_manager(**ansible_cfg)

@@ -1,0 +1,108 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+import json
+import base64
+from pathlib import Path
+
+from typing import Any, Set, Type, Dict, Callable, cast, Tuple, Optional, \
+    NewType, Union, TypeVar
+
+from .futures import CafError
+
+_T = TypeVar('_T')
+# JSONContainer should be Union[List[JSONValue], Dict[str, JSONValue]]
+JSONContainer = NewType('JSONContainer', object)
+JSONValue = Union[None, bool, int, float, str, JSONContainer]
+JSONConverter = Callable[[_T], Dict[str, JSONValue]]
+JSONAdapter = Callable[[Dict[str, JSONValue]], _T]
+JSONDefault = Callable[[_T], Optional[Tuple[str, Dict[str, JSONValue]]]]
+JSONHook = Callable[[str, Dict[str, JSONValue]], Union[_T, Dict[str, JSONValue]]]
+ClassRegister = Dict[Type[Any], Tuple[JSONConverter[Any], JSONAdapter[Any]]]
+
+registered_classes: ClassRegister = {
+    bytes: (
+        lambda b: {'bytes': base64.b64encode(b).decode()},
+        lambda dct: base64.b64decode(cast(str, dct['bytes']).encode())
+    ),
+    Path: (
+        lambda p: {'path': str(p)},
+        lambda dct: Path(cast(str, dct['path']))
+    )
+}
+
+
+class InvalidJSONObject(CafError):
+    pass
+
+
+class JSONValidator:
+    def __init__(self, hook: Callable[[Any], bool] = None) -> None:
+        self._hook = hook
+        self._classes = tuple(registered_classes)
+
+    def __call__(self, obj: Any) -> None:
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return
+        if isinstance(obj, self._classes):
+            return
+        if self._hook and self._hook(obj):
+            return
+        elif isinstance(obj, list):
+            for x in obj:
+                self(x)
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                if not isinstance(k, str):
+                    raise InvalidJSONObject('Dict keys must be strings')
+                self(v)
+        else:
+            raise InvalidJSONObject(f'Unknown object: {obj!r}')
+
+
+class ClassJSONEncoder(json.JSONEncoder):
+    def __init__(self, *args: Any, tape: Set[Any], default: JSONDefault[Any],
+                 **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._default = default
+        self._tape = tape
+        self._classes = tuple(registered_classes)
+        self._default_encs = {
+            cls: enc for cls, (enc, dec) in registered_classes.items()
+        }
+
+    def default(self, o: Any) -> JSONValue:
+        type_tag: Optional[str] = None
+        if isinstance(o, self._classes):
+            dct = self._default_encs[o.__class__](o)
+            type_tag = o.__class__.__name__
+        else:
+            encoded = self._default(o)
+            if encoded is not None:
+                type_tag, dct = encoded
+                self._tape.add(o)
+        if type_tag is not None:
+            return cast(JSONContainer, {'_type': type_tag, **dct})
+        return cast(JSONValue, super().default(o))
+
+
+class ClassJSONDecoder(json.JSONDecoder):
+    def __init__(self, *args: Any, hook: JSONHook[Any], **kwargs: Any
+                 ) -> None:
+        assert 'object_hook' not in kwargs
+        kwargs['object_hook'] = self._my_object_hook
+        super().__init__(*args, **kwargs)
+        self._hook = hook
+        self._default_decs = {
+            cls.__name__: dec for cls, (enc, dec) in registered_classes.items()
+        }
+
+    def _my_object_hook(self, dct: Dict[str, JSONValue]) -> Any:
+        try:
+            type_tag = dct.pop('_type')
+            assert isinstance(type_tag, str)
+        except KeyError:
+            return dct
+        if type_tag in self._default_decs:
+            return self._default_decs[type_tag](dct)
+        return self._hook(type_tag, dct)

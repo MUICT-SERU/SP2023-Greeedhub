@@ -1,0 +1,112 @@
+import typing
+
+from .fields import Field
+from .query import Query
+from .utils import _camel_to_snake
+
+
+class Database(object):
+
+    async def execute(*queries):
+        """
+        Use asyncio.gather here ...
+        """
+        pass
+
+
+class ModelMeta(type):
+
+    def __new__(cls, name, bases, namespace, **kwds):
+        """
+        Automatically populate the tablename, and fields.
+        """
+        model = super().__new__(cls, name, bases, namespace)
+
+        tablename = _camel_to_snake(name)
+        model.__tablename__ = tablename
+
+        fields = {}
+        for key, value in namespace.items():
+            if issubclass(type(value), Field):
+                fields[name] = value
+
+        model.__fields__ = fields
+        return model
+
+
+class Model(metaclass=ModelMeta):
+
+    @classmethod
+    def _tablename(cls):
+        tablename = getattr(cls, 'tablename', None)
+        if tablename:
+            return tablename
+        else:
+            # TODO - FooBar -> foo_bar
+            return cls.__name__.lower()
+
+    @property
+    def fields() -> [Field]:
+        """
+        Needs to inspect the subclass, and return all Fields.
+
+        Also ... needs to be a classproperty, or just stored by the meta
+        class.
+
+        Want this generated once by the meta class, or cached.
+        """
+
+    @classmethod
+    def select(cls, *field_names: [str]) -> Query:
+        """
+        Needs to be a simple wrapper.
+
+        One thing I *might* want to do is have an AS string, or just allow
+        that in the string. For example, 'foo as bar'. I think I'll make
+        it more explicit. So you do As('foo', 'bar'). So we can easily
+        inspect that the field exists, and what we're trying to map it
+        to doesn't already exist.
+        """
+        if len(field_names) == 0:
+            fields_str = '*'
+        else:
+            # TODO - make sure the fields passed in are valid
+            fields_str = ', '.join(field_names)
+
+        tablename = cls._tablename()
+        return Query(
+            type='SELECT',
+            model=cls,
+            base=f'SELECT {fields_str} from {tablename}'
+            )
+
+    @classmethod
+    async def insert(cls, *row: ["Model"]):
+        """
+        In typing is it possible to distinguish between a class and a class
+        instance?
+        """
+        pass
+
+    @classmethod
+    async def update(cls):
+        """
+        All I want here is some filtering ... like by id, or name.
+
+        I want to just update certain fields ...
+
+        Need to think about the cleanest API.
+
+        await Pokemon.update('name', 'raichu').where('name', 'pikachu').execute()
+
+        OR:
+        await Pokemon.update(name='raichu').where(name='pikachu').execute()
+
+        await Pokemon.select('name').where(color='yellow').execute()
+
+        OR:
+        await Pokemon.select('name', 'power').where(power='yellow').execute()
+
+        Is there any way to use > symbol???
+        """
+        pass

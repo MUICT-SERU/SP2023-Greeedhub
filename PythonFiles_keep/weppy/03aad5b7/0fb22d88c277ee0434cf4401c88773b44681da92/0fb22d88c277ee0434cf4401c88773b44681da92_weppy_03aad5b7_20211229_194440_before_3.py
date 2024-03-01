@@ -1,0 +1,830 @@
+# -*- coding: utf-8 -*-
+"""
+    emmett.orm.models
+    -----------------
+
+    Provides model layer for Emmet's ORM.
+
+    :copyright: 2014 Giovanni Barillari
+    :license: BSD-3-Clause
+"""
+
+import operator
+import types
+
+from collections import OrderedDict
+from functools import reduce
+
+from ..datastructures import sdict
+from ..utils import cachedprop
+from .apis import (
+    compute, rowattr, rowmethod, scope, belongs_to, refers_to, has_one,
+    has_many
+)
+from .errors import InsertFailureOnSave, UpdateFailureOnSave, ValidationError
+from .helpers import (
+    Callback, ReferenceData, make_tablename, camelize, decamelize,
+    wrap_scope_on_model, wrap_virtual_on_model
+)
+from .objects import Field, Row
+from .wrappers import HasOneWrap, HasManyWrap, HasManyViaWrap
+
+
+class MetaModel(type):
+    _inheritable_dict_attrs_ = [
+        'indexes', 'validation', ('fields_rw', {'id': False}), 'foreign_keys',
+        'default_values', 'update_values', 'repr_values',
+        'form_labels', 'form_info', 'form_widgets'
+    ]
+
+    def __new__(cls, name, bases, attrs):
+        new_class = type.__new__(cls, name, bases, attrs)
+        #: collect declared attributes
+        tablename = attrs.get('tablename')
+        fields = []
+        vfields = []
+        computations = []
+        callbacks = []
+        declared_fields = OrderedDict()
+        declared_vfields = OrderedDict()
+        declared_computations = OrderedDict()
+        declared_callbacks = OrderedDict()
+        declared_scopes = {}
+        for key, value in list(attrs.items()):
+            if isinstance(value, Field):
+                fields.append((key, value))
+            elif isinstance(value, rowattr):
+                vfields.append((key, value))
+            elif isinstance(value, compute):
+                computations.append((key, value))
+            elif isinstance(value, Callback):
+                callbacks.append((key, value))
+            elif isinstance(value, scope):
+                declared_scopes[key] = value
+        declared_relations = sdict(
+            belongs=OrderedDict(), refers=OrderedDict(),
+            hasone=OrderedDict(), hasmany=OrderedDict()
+        )
+        for ref in belongs_to._references_.values():
+            for item in ref.reference:
+                rkey = list(item)[0] if isinstance(item, dict) else item
+                declared_relations.belongs[rkey] = item
+        belongs_to._references_ = {}
+        for ref in refers_to._references_.values():
+            for item in ref.reference:
+                rkey = list(item)[0] if isinstance(item, dict) else item
+                declared_relations.refers[rkey] = item
+        refers_to._references_ = {}
+        for ref in has_one._references_.values():
+            for item in ref.reference:
+                rkey = list(item)[0] if isinstance(item, dict) else item
+                declared_relations.hasone[rkey] = item
+        has_one._references_ = {}
+        for ref in has_many._references_.values():
+            for item in ref.reference:
+                rkey = list(item)[0] if isinstance(item, dict) else item
+                declared_relations.hasmany[rkey] = item
+        has_many._references_ = {}
+        #: sort declared attributes that keeps order
+        fields.sort(key=lambda x: x[1]._inst_count_)
+        vfields.sort(key=lambda x: x[1]._inst_count_)
+        computations.sort(key=lambda x: x[1]._inst_count_)
+        callbacks.sort(key=lambda x: x[1]._inst_count_)
+        declared_fields.update(fields)
+        declared_vfields.update(vfields)
+        declared_computations.update(computations)
+        declared_callbacks.update(callbacks)
+        #: store declared attributes in class
+        new_class._declared_tablename_ = tablename
+        new_class._declared_fields_ = declared_fields
+        new_class._declared_virtuals_ = declared_vfields
+        new_class._declared_computations_ = declared_computations
+        new_class._declared_callbacks_ = declared_callbacks
+        new_class._declared_scopes_ = declared_scopes
+        new_class._declared_belongs_ref_ = declared_relations.belongs
+        new_class._declared_refers_ref_ = declared_relations.refers
+        new_class._declared_hasone_ref_ = declared_relations.hasone
+        new_class._declared_hasmany_ref_ = declared_relations.hasmany
+        #: get super declared attributes
+        all_fields = OrderedDict()
+        all_vfields = OrderedDict()
+        all_computations = OrderedDict()
+        all_callbacks = OrderedDict()
+        all_scopes = {}
+        all_relations = sdict(
+            belongs=OrderedDict(), refers=OrderedDict(),
+            hasone=OrderedDict(), hasmany=OrderedDict()
+        )
+        for base in reversed(new_class.__mro__[1:]):
+            if hasattr(base, '_declared_fields_'):
+                all_fields.update(base._declared_fields_)
+            if hasattr(base, '_declared_virtuals_'):
+                all_vfields.update(base._declared_virtuals_)
+            if hasattr(base, '_declared_computations_'):
+                all_computations.update(base._declared_computations_)
+            if hasattr(base, '_declared_callbacks_'):
+                all_callbacks.update(base._declared_callbacks_)
+            if hasattr(base, '_declared_scopes_'):
+                all_scopes.update(base._declared_scopes_)
+            for key in list(all_relations):
+                attrkey = '_declared_' + key + '_ref_'
+                if hasattr(base, attrkey):
+                    all_relations[key].update(getattr(base, attrkey))
+        #: compose 'all' attributes
+        all_fields.update(declared_fields)
+        all_vfields.update(declared_vfields)
+        all_computations.update(declared_computations)
+        all_callbacks.update(declared_callbacks)
+        all_scopes.update(declared_scopes)
+        for key in list(all_relations):
+            all_relations[key].update(declared_relations[key])
+        #: store 'all' attributes on class
+        new_class._all_fields_ = all_fields
+        new_class._all_virtuals_ = all_vfields
+        new_class._all_computations_ = all_computations
+        new_class._all_callbacks_ = all_callbacks
+        new_class._all_scopes_ = all_scopes
+        new_class._all_belongs_ref_ = all_relations.belongs
+        new_class._all_refers_ref_ = all_relations.refers
+        new_class._all_hasone_ref_ = all_relations.hasone
+        new_class._all_hasmany_ref_ = all_relations.hasmany
+        return new_class
+
+
+class Model(metaclass=MetaModel):
+    db = None
+    table = None
+
+    auto_validation = True
+
+    @classmethod
+    def _init_inheritable_dicts_(cls):
+        if cls.__bases__ != (object,):
+            return
+        for attr in cls._inheritable_dict_attrs_:
+            if isinstance(attr, tuple):
+                attr_name, default = attr
+            else:
+                attr_name, default = attr, {}
+            if not isinstance(default, dict):
+                raise SyntaxError(f"{attr_name} is not a dictionary")
+            setattr(cls, attr_name, default)
+
+    @classmethod
+    def _merge_inheritable_dicts_(cls, models):
+        for attr in cls._inheritable_dict_attrs_:
+            if isinstance(attr, tuple):
+                attr_name = attr[0]
+            else:
+                attr_name = attr
+            attrs = {}
+            for model in models:
+                superattrs = getattr(model, attr_name)
+                for k, v in superattrs.items():
+                    attrs[k] = v
+            for k, v in getattr(cls, attr_name).items():
+                attrs[k] = v
+            setattr(cls, attr_name, attrs)
+
+    @classmethod
+    def __getsuperattrs(cls):
+        superattr = "_supermodels" + cls.__name__
+        if hasattr(cls, superattr):
+            return
+        supermodels = cls.__bases__
+        superattr_val = []
+        for supermodel in supermodels:
+            try:
+                supermodel.__getsuperattrs()
+                superattr_val.append(supermodel)
+            except Exception:
+                pass
+        setattr(cls, superattr, superattr_val)
+        sup = getattr(cls, superattr)
+        if not sup:
+            return
+        cls._merge_inheritable_dicts_(sup)
+
+    def __new__(cls):
+        if cls._declared_tablename_ is None:
+            cls.tablename = make_tablename(cls.__name__)
+        cls.__getsuperattrs()
+        return super(Model, cls).__new__(cls)
+
+    def __init__(self):
+        if not hasattr(self, 'migrate'):
+            self.migrate = self.config.get('migrate', self.db._migrate)
+        if not hasattr(self, 'format'):
+            self.format = None
+        if not hasattr(self, 'primary_keys'):
+            self.primary_keys = []
+
+    @property
+    def config(self):
+        return self.db.config
+
+    def __parse_relation_via(self, via):
+        if via is None:
+            return via
+        rv = sdict()
+        splitted = via.split('.')
+        rv.via = splitted[0]
+        if len(splitted) > 1:
+            rv.field = splitted[1]
+        return rv
+
+    def __parse_belongs_relation(self, item, on_delete):
+        rv = sdict(fk="id", on_delete=on_delete)
+        if isinstance(item, dict):
+            rv.name = list(item)[0]
+            rdata = item[rv.name]
+            target = None
+            if isinstance(rdata, dict):
+                if "target" in rdata:
+                    target = rdata["target"]
+                if "on_delete" in rdata:
+                    rv.on_delete = rdata["on_delete"]
+            else:
+                target = rdata
+            if not target:
+                target = camelize(rv.name)
+            if "." in target:
+                target, rv.fk = target.split(".")
+            if target == "self":
+                target = self.__class__.__name__
+            rv.model = target
+        else:
+            rv.name = item
+            rv.model = camelize(item)
+        return rv
+
+    def __build_relation_modelname(self, name, relation, singularize):
+        relation.model = camelize(name)
+        if singularize:
+            relation.model = relation.model[:-1]
+
+    def __build_relation_fieldname(self, relation):
+        splitted = relation.model.split('.')
+        relation.model = splitted[0]
+        if len(splitted) > 1:
+            relation.field = splitted[1]
+        else:
+            relation.field = decamelize(self.__class__.__name__)
+
+    def __parse_relation_dict(self, rel, singularize):
+        if 'scope' in rel.model:
+            rel.scope = rel.model['scope']
+        if 'where' in rel.model:
+            rel.where = rel.model['where']
+        if 'via' in rel.model:
+            rel.update(self.__parse_relation_via(rel.model['via']))
+            del rel.model
+        else:
+            if 'target' in rel.model:
+                rel.model = rel.model['target']
+            if not isinstance(rel.model, str):
+                self.__build_relation_modelname(rel.name, rel, singularize)
+
+    def __parse_many_relation(self, item, singularize=True):
+        rv = ReferenceData(self)
+        if isinstance(item, dict):
+            rv.name = list(item)[0]
+            rv.model = item[rv.name]
+            if isinstance(rv.model, dict):
+                if 'method' in rv.model:
+                    rv.field = rv.model.get(
+                        'field', decamelize(self.__class__.__name__)
+                    )
+                    rv.cast = rv.model.get('cast')
+                    rv.method = rv.model['method']
+                    del rv.model
+                else:
+                    self.__parse_relation_dict(rv, singularize)
+        else:
+            rv.name = item
+            self.__build_relation_modelname(item, rv, singularize)
+        if rv.model:
+            if not rv.field:
+                self.__build_relation_fieldname(rv)
+            if rv.model == "self":
+                rv.model = self.__class__.__name__
+        return rv
+
+    def _define_props_(self):
+        #: create pydal's Field elements
+        self.fields = []
+        if not self.primary_keys and 'id' not in self._all_fields_:
+            idfield = Field('id')._make_field('id', model=self)
+            setattr(self.__class__, 'id', idfield)
+            self.fields.append(idfield)
+        for name, obj in self._all_fields_.items():
+            if obj.modelname is not None:
+                obj = Field(obj._type, *obj._args, **obj._kwargs)
+                setattr(self.__class__, name, obj)
+            self.fields.append(obj._make_field(name, self))
+
+    def _define_relations_(self):
+        _ftype_builder = lambda v: 'reference {}'.format(v)
+        self._virtual_relations_ = OrderedDict()
+        bad_args_error = (
+            "belongs_to, has_one and has_many "
+            "only accept strings or dicts as arguments"
+        )
+        #: belongs_to and refers_to are mapped with 'reference' type Field
+        _references = []
+        _reference_keys = ['_all_belongs_ref_', '_all_refers_ref_']
+        belongs_references = {}
+        for key in _reference_keys:
+            if hasattr(self, key):
+                _references.append(list(getattr(self, key).values()))
+            else:
+                _references.append([])
+        isbelongs, ondelete = True, 'cascade'
+        for _references_obj in _references:
+            for item in _references_obj:
+                if not isinstance(item, (str, dict)):
+                    raise RuntimeError(bad_args_error)
+                reference = self.__parse_belongs_relation(item, ondelete)
+                reference.ftype = self.db[reference.model][reference.fk].type
+                if reference.model != self.__class__.__name__:
+                    tablename = self.db[reference.model]._tablename
+                else:
+                    tablename = self.tablename
+                fieldobj = Field(
+                    _ftype_builder(tablename),
+                    ondelete=reference.on_delete,
+                    _isrefers=not isbelongs
+                )
+                setattr(self.__class__, reference.name, fieldobj)
+                self.fields.append(
+                    getattr(self, reference.name)._make_field(
+                        reference.name, self
+                    )
+                )
+                belongs_references[reference.name] = reference
+            isbelongs = False
+            ondelete = 'nullify'
+        setattr(self.__class__, '_belongs_ref_', belongs_references)
+        #: has_one are mapped with rowattr
+        hasone_references = {}
+        if hasattr(self, '_all_hasone_ref_'):
+            for item in getattr(self, '_all_hasone_ref_').values():
+                if not isinstance(item, (str, dict)):
+                    raise RuntimeError(bad_args_error)
+                reference = self.__parse_many_relation(item, False)
+                self._virtual_relations_[reference.name] = rowattr(
+                    reference.name
+                )(HasOneWrap(reference))
+                hasone_references[reference.name] = reference
+        setattr(self.__class__, '_hasone_ref_', hasone_references)
+        #: has_many are mapped with rowattr
+        hasmany_references = {}
+        if hasattr(self, '_all_hasmany_ref_'):
+            for item in getattr(self, '_all_hasmany_ref_').values():
+                if not isinstance(item, (str, dict)):
+                    raise RuntimeError(bad_args_error)
+                reference = self.__parse_many_relation(item)
+                if reference.via is not None:
+                    #: maps has_many({'things': {'via': 'otherthings'}})
+                    wrapper = HasManyViaWrap
+                else:
+                    #: maps has_many('things'),
+                    #  has_many({'things': 'othername'})
+                    wrapper = HasManyWrap
+                self._virtual_relations_[reference.name] = rowattr(
+                    reference.name
+                )(wrapper(reference))
+                hasmany_references[reference.name] = reference
+        setattr(self.__class__, '_hasmany_ref_', hasmany_references)
+        self.__define_fks()
+
+    def _define_virtuals_(self):
+        self._all_rowattrs_ = {}
+        self._all_rowmethods_ = {}
+        err = 'rowattr or rowmethod cannot have the name of an existent field!'
+        field_names = [field.name for field in self.fields]
+        for attr in ['_virtual_relations_', '_all_virtuals_']:
+            for _, obj in getattr(self, attr, {}).items():
+                if obj.field_name in field_names:
+                    raise RuntimeError(err)
+                wrapped = wrap_virtual_on_model(self, obj.f)
+                if isinstance(obj, rowmethod):
+                    self._all_rowmethods_[obj.field_name] = wrapped
+                    f = Field.Method(obj.field_name, wrapped)
+                else:
+                    self._all_rowattrs_[obj.field_name] = wrapped
+                    f = Field.Virtual(obj.field_name, wrapped)
+                self.fields.append(f)
+
+    def _build_rowclass_(self):
+        #: build helpers for rows
+        save_excluded_fields = (
+            set(self.primary_keys or ['id']) |
+            set(self._all_rowattrs_.keys()) |
+            set(self._all_rowmethods_.keys())
+        )
+        self._fieldset_editable = set([
+            field.name for field in self.fields
+        ]) - save_excluded_fields
+        self._fieldset_update = set([
+            field.name for field in self.fields
+            if getattr(field, "update", None) is not None
+        ]) & self._fieldset_editable
+        #: create dynamic row class
+        clsname = self.__class__.__name__ + "Row"
+        attrs = {
+            k: cachedprop(v, name=k) for k, v in self._all_rowattrs_.items()
+        }
+        attrs.update(self._all_rowmethods_)
+        self._rowclass_ = type(clsname, (Row,), attrs)
+        globals()[clsname] = self._rowclass_
+
+    def _define_(self):
+        self.__define_indexes()
+        self.__define_validation()
+        self.__define_access()
+        self.__define_defaults()
+        self.__define_updates()
+        self.__define_representation()
+        self.__define_computations()
+        self.__define_callbacks()
+        self.__define_scopes()
+        self.__define_query_helpers()
+        self.__define_form_utils()
+        self.setup()
+
+    def __define_validation(self):
+        for field in self.fields:
+            if isinstance(field, (Field.Method, Field.Virtual)):
+                continue
+            validation = self.validation.get(field.name, {})
+            if isinstance(validation, dict):
+                for key in list(validation):
+                    field._requires[key] = validation[key]
+            elif isinstance(validation, list):
+                field._custom_requires += validation
+            else:
+                field._custom_requires.append(validation)
+            field._parse_validation()
+
+    def __define_access(self):
+        for field, value in self.fields_rw.items():
+            if field == 'id' and field not in self.table:
+                continue
+            if isinstance(value, (tuple, list)):
+                readable, writable = value
+            else:
+                writable = value
+                readable = value
+            self.table[field].writable = writable
+            self.table[field].readable = readable
+
+    def __define_defaults(self):
+        for field, value in self.default_values.items():
+            self.table[field].default = value
+
+    def __define_updates(self):
+        for field, value in self.update_values.items():
+            self.table[field].update = value
+
+    def __define_representation(self):
+        for field, value in self.repr_values.items():
+            self.table[field].represent = value
+
+    def __define_computations(self):
+        err = 'computations should have the name of an existing field to compute!'
+        field_names = [field.name for field in self.fields]
+        for obj in self._all_computations_.values():
+            if obj.field_name not in field_names:
+                raise RuntimeError(err)
+            self.table[obj.field_name].compute = (
+                lambda row, obj=obj, self=self: obj.compute(self, row)
+            )
+
+    def __define_callbacks(self):
+        for obj in self._all_callbacks_.values():
+            for t in obj.t:
+                if t in [
+                    "_before_insert",
+                    "_before_delete",
+                    "_after_delete",
+                    "_before_save",
+                    "_after_save"
+                ]:
+                    getattr(self.table, t).append(
+                        lambda a, obj=obj, self=self: obj.f(self, a)
+                    )
+                else:
+                    getattr(self.table, t).append(
+                        lambda a, b, obj=obj, self=self: obj.f(self, a, b)
+                    )
+
+    def __define_scopes(self):
+        self._scopes_ = {}
+        for obj in self._all_scopes_.values():
+            self._scopes_[obj.name] = obj
+            if not hasattr(self.__class__, obj.name):
+                setattr(
+                    self.__class__, obj.name,
+                    classmethod(wrap_scope_on_model(obj.f))
+                )
+
+    def __prepend_table_name(self, name, ns):
+        return '%s_%s__%s' % (self.tablename, ns, name)
+
+    def __create_index_name(self, *values):
+        components = []
+        for value in values:
+            components.append(value.replace('_', ''))
+        return self.__prepend_table_name("_".join(components), 'widx')
+
+    def __create_fk_contraint_name(self, *values):
+        components = []
+        for value in values:
+            components.append(value.replace('_', ''))
+        return self.__prepend_table_name("fk__" + "_".join(components), 'ecnt')
+
+    def __parse_index_dict(self, value):
+        rv = {}
+        fields = value.get('fields') or []
+        if not isinstance(fields, (list, tuple)):
+            fields = [fields]
+        rv['fields'] = fields
+        where_query = None
+        where_cond = value.get('where')
+        if callable(where_cond):
+            where_query = where_cond(self.__class__)
+        if where_query:
+            rv['where'] = where_query
+        expressions = []
+        expressions_cond = value.get('expressions')
+        if callable(expressions_cond):
+            expressions = expressions_cond(self.__class__)
+        if not isinstance(expressions, (tuple, list)):
+            expressions = [expressions]
+        rv['expressions'] = expressions
+        rv['unique'] = value.get('unique', False)
+        return rv
+
+    def __define_indexes(self):
+        self._indexes_ = {}
+        for key, value in self.indexes.items():
+            if isinstance(value, bool):
+                if not value:
+                    continue
+                if not isinstance(key, tuple):
+                    key = [key]
+                if any(field not in self.table for field in key):
+                    raise SyntaxError(f'Invalid field specified in indexes: {key}')
+                idx_name = self.__create_index_name(*key)
+                idx_dict = {'fields': key, 'expressions': [], 'unique': False}
+            elif isinstance(value, dict):
+                idx_name = self.__prepend_table_name(key, 'widx')
+                idx_dict = self.__parse_index_dict(value)
+            else:
+                raise SyntaxError('Values in indexes dict should be booleans or dicts')
+            self._indexes_[idx_name] = idx_dict
+
+    def __define_fks(self):
+        self._foreign_keys_ = {}
+        implicit_defs = {}
+        grouped_rels = {}
+        for rname, rel in self._belongs_ref_.items():
+            rmodel = self.db[rel.model]._model_
+            if not rmodel.primary_keys and getattr(rmodel, 'id').type == 'id':
+                continue
+            if len(rmodel.primary_keys) > 1:
+                match = None
+                for key, val in self.foreign_keys.items():
+                    if (
+                        rel.fk in rmodel.primary_keys and
+                        set(val["foreign_fields"]) == set(rmodel.primary_keys)
+                    ):
+                        match = key
+                        break
+                if not match:
+                    raise SyntaxError(
+                        f"{self.__class__.__name__}.{rname} relation targets a "
+                        "compound primary key table. A matching foreign key "
+                        "needs to be defined into `foreign_keys`."
+                    )
+                trels = grouped_rels[rmodel.tablename] = grouped_rels.get(
+                    rmodel.tablename, {
+                        'rels': {},
+                        'on_delete': self.foreign_keys[match].get(
+                            "on_delete", "cascade"
+                        )
+                    }
+                )
+                trels['rels'][rname] = rel
+            else:
+                # NOTE: we need this since pyDAL doesn't support id/refs types != int
+                implicit_defs[rname] = {
+                    'table': rmodel.tablename,
+                    'fields_local': [rname],
+                    'fields_foreign': [rel.fk],
+                    'on_delete': Field._internal_delete[rel.on_delete]
+                }
+        for rname, rel in implicit_defs.items():
+            constraint_name =  self.__create_fk_contraint_name(
+                rel['table'], *rel['fields_local']
+            )
+            self._foreign_keys_[constraint_name] = {**rel}
+        for tname, rels in grouped_rels.items():
+            constraint_name = self.__create_fk_contraint_name(
+                tname, *[rel.name for rel in rels['rels'].values()]
+            )
+            self._foreign_keys_[constraint_name] = {
+                'table': tname,
+                'fields_local': [rel.name for rel in rels['rels'].values()],
+                'fields_foreign': [rel.fk for rel in rels['rels'].values()],
+                'on_delete': Field._internal_delete[rels['on_delete']]
+            }
+
+    def _row_refrecord_id(self, row):
+        return bool(row.id)
+
+    def _row_refrecord_pk(self, row):
+        return bool(row[self.primary_keys[0]])
+
+    def _row_refrecord_pks(self, row):
+        return all(bool(row[v]) for v in self.primary_keys)
+
+    def _row_record_query_id(self, row):
+        return self.table.id == row.id
+
+    def _row_record_query_pk(self, row):
+        return self.table[self.primary_keys[0]] == row[self.primary_keys[0]]
+
+    def _row_record_query_pks(self, row):
+        return reduce(
+            operator.and_, [self.table[pk] == row[pk] for pk in self.primary_keys]
+        )
+
+    def __define_query_helpers(self):
+        if not self.primary_keys:
+            self._row_has_id = self._row_refrecord_id
+            self._query_id = self.table.id != None
+            self._query_row = self._row_record_query_id
+            self._order_by_id_asc = self.table.id
+            self._order_by_id_desc = ~self.table.id
+        elif len(self.primary_keys) == 1:
+            self._row_has_id = self._row_refrecord_pk
+            self._query_id = self.table[self.primary_keys[0]] != None
+            self._query_row = self._row_record_query_pk
+            self._order_by_id_asc = self.table[self.primary_keys[0]]
+            self._order_by_id_desc = ~self.table[self.primary_keys[0]]
+        else:
+            self._row_has_id = self._row_refrecord_pks
+            self._query_id = reduce(
+                operator.and_, [self.table[key] != None for key in self.primary_keys]
+            )
+            self._query_row = self._row_record_query_pks
+            self._order_by_id_asc = reduce(
+                operator.or_, [self.table[key] for key in self.primary_keys]
+            )
+            self._order_by_id_desc = reduce(
+                operator.or_, [~self.table[key] for key in self.primary_keys]
+            )
+
+    def __define_form_utils(self):
+        #: labels
+        for field, value in self.form_labels.items():
+            self.table[field].label = value
+        #: info
+        for field, value in self.form_info.items():
+            self.table[field].comment = value
+        #: widgets
+        for field, value in self.form_widgets.items():
+            self.table[field].widget = value
+
+    def setup(self):
+        pass
+
+    @classmethod
+    def _instance_(cls):
+        return cls.table._model_
+
+    @classmethod
+    def new(cls, **attributes):
+        inst = cls._instance_()
+        row = inst._rowclass_()
+        for field in inst._fieldset_editable & set(attributes.keys()):
+            row[field] = attributes[field]
+        for field in inst._fieldset_editable - set(attributes.keys()):
+            val = cls.table[field].default
+            if callable(val):
+                val = val()
+            row[field] = val
+        for field in (inst.primary_keys or ["id"]):
+            row[field] = None
+        return row
+
+    @classmethod
+    def create(cls, *args, **kwargs):
+        if args:
+            if isinstance(args[0], (dict, sdict)):
+                for key in list(args[0]):
+                    kwargs[key] = args[0][key]
+        return cls.table.validate_and_insert(**kwargs)
+
+    @classmethod
+    def validate(cls, row):
+        row = sdict(row)
+        errors = sdict()
+        for field in cls.table.fields:
+            default = getattr(cls.table[field], 'default')
+            if callable(default):
+                default = default()
+            value = row.get(field, default)
+            _, error = cls.table[field].validate(value)
+            if error:
+                errors[field] = error
+        return errors
+
+    @classmethod
+    def where(cls, cond):
+        if not isinstance(cond, types.LambdaType):
+            raise ValueError("Model.where expects a lambda as parameter")
+        return cls.db.where(cond(cls), model=cls)
+
+    @classmethod
+    def all(cls):
+        return cls.db.where(cls._instance_()._query_id, model=cls)
+
+    @classmethod
+    def first(cls):
+        return cls.all().select(
+            orderby=cls._instance_()._order_by_id_asc,
+            limitby=(0, 1)
+        ).first()
+
+    @classmethod
+    def last(cls):
+        return cls.all().select(
+            orderby=cls._instance_()._order_by_id_desc,
+            limitby=(0, 1)
+        ).first()
+
+    @classmethod
+    def get(cls, *args, **kwargs):
+        if len(args) == 1:
+            return cls.table[args[0]]
+        return cls.table(**kwargs)
+
+    @rowmethod('update_record')
+    def _update_record(self, row, **fields):
+        newfields = fields or dict(row)
+        for fieldname in list(newfields.keys()):
+            if (
+                fieldname not in self.table.fields or
+                self.table[fieldname].type == 'id'
+            ):
+                del newfields[fieldname]
+        res = self.db(
+            self._query_row(row), ignore_common_filters=True
+        ).update(**newfields)
+        if res:
+            row.update(self.get(row.id))
+        return row
+
+    @rowmethod('delete_record')
+    def _delete_record(self, row):
+        return self.db(self._query_row(row)).delete()
+
+    @rowmethod('validation_errors')
+    def _row_validation_errors(self, row):
+        return self.validate(row)
+
+    @rowmethod('is_valid')
+    def _row_is_valid(self, row):
+        return not bool(self.validate(row))
+
+    @rowmethod('save')
+    def _row_save(self, row, raise_on_error: bool = False) -> bool:
+        is_update = self._row_has_id(row)
+        if is_update:
+            for field_name in self._fieldset_update:
+                val = self.table[field_name].update
+                if callable(val):
+                    val = val()
+                row[field_name] = val
+        if not row.is_valid():
+            if raise_on_error:
+                raise ValidationError
+            return False
+        if is_update:
+            res = self.db(
+                self._query_row(row), ignore_common_filters=True
+            )._update_from_save(self, row)
+            if not res:
+                if raise_on_error:
+                    raise UpdateFailureOnSave
+                return False
+        else:
+            self.table._insert_from_save(row)
+            if not self._row_has_id(row):
+                if raise_on_error:
+                    raise InsertFailureOnSave
+                return False
+        return True

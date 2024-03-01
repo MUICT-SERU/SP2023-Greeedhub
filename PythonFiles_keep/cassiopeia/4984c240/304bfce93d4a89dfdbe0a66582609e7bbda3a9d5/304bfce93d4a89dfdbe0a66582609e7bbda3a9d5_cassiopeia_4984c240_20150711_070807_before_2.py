@@ -1,0 +1,29 @@
+import json
+import sqlalchemy.ext.declarative
+
+class CassiopeiaDto(object):
+    def __init__(self, dictionary):
+        for k,v in dictionary.items():
+            setattr(self, k, v)
+
+    def to_json(self):
+        dictionary = {k: v for k,v in self.__dict__.items() if not k.startswith("_")}
+        return json.dumps(dictionary, default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
+    def __str__(self):
+        return self.to_json()
+
+    def __repr__(self):
+        return "{class_}({dict_})".format(class_=self.__class__.__name__, dict_=self.__dict__)
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+    def __ne__(self, other):
+        return self.__dict__ != other.__dict__
+
+    def __hash__(self):
+        return hash(id(self))
+
+
+BaseDB = sqlalchemy.ext.declarative.declarative_base()

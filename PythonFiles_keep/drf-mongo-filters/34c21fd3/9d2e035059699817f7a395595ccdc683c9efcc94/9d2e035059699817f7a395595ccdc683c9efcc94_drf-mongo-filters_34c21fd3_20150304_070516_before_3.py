@@ -1,0 +1,127 @@
+from datetime import datetime
+from unittest import TestCase
+from unittest import mock
+from django.http import QueryDict
+
+from rest_framework import fields
+from rest_framework.exceptions import ValidationError
+
+from drf_mongo_filters.fields import ListField, DictField, DateTime000Field
+
+class ListFieldTests(TestCase):
+    def setUpFld(self, **kwargs):
+        fld = ListField(**kwargs)
+        fld.bind('foo', mock.Mock())
+        return fld
+
+    def test_get_query(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo=1&foo=2&foo=3"))
+        self.assertEqual(value, [ "1", "2", "3" ])
+
+    def test_get_data(self):
+        fld = self.setUpFld()
+        value = fld.get_value({ 'foo': ["1","2","3"] })
+        self.assertEqual(value, [ "1", "2", "3" ])
+
+    def test_get_empty(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo="))
+        self.assertEqual(value, fields.empty)
+
+    def test_get_missing(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict(""))
+        self.assertEqual(value, fields.empty)
+
+    def test_parse_default(self):
+        fld = self.setUpFld()
+        value = fld.to_internal_value([ "1", "2", "3" ])
+        self.assertEqual(value, [ "1", "2", "3" ])
+
+    def test_parse_typed(self):
+        fld = self.setUpFld(child=fields.IntegerField())
+        value = fld.to_internal_value([ "1", "2", "3" ])
+        self.assertEqual(value, [ 1, 2, 3 ])
+
+    def test_parse_typed_invalid(self):
+        fld = self.setUpFld(child=fields.IntegerField())
+        with self.assertRaises(ValidationError):
+            value = fld.to_internal_value([ "1", "xxx", "3" ])
+
+class DictFieldTests(TestCase):
+    def setUpFld(self, **kwargs):
+        fld = DictField(**kwargs)
+        fld.bind('foo', mock.Mock())
+        return fld
+
+    def test_get(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo.aa=1&foo.bb=2&foo.cc=3"))
+        self.assertEqual(value, { 'aa': "1", 'bb':"2", 'cc':"3" })
+
+    def test_get_empty(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo="))
+        self.assertEqual(value, fields.empty)
+
+    def test_get_missing(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict(""))
+        self.assertEqual(value, fields.empty)
+
+    def test_get_empty_sub(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo.aa=1&foo.bb=&foo.cc="))
+        self.assertEqual(value, { 'aa': "1" })
+
+    def test_get_empty_all(self):
+        fld = self.setUpFld()
+        value = fld.get_value(QueryDict("foo.aa=&foo.bb=&foo.cc="))
+        self.assertEqual(value, fields.empty)
+
+    def test_parse_default(self):
+        fld = self.setUpFld()
+        value = fld.to_internal_value({ 'aa': "1", 'bb':"2", 'cc':"3" })
+        self.assertEqual(value, { 'aa': "1", 'bb':"2", 'cc':"3" })
+
+    def test_parse_typed(self):
+        fld = self.setUpFld(child=fields.IntegerField())
+        value = fld.to_internal_value({ 'aa': "1", 'bb':"2", 'cc':"3" })
+        self.assertEqual(value, { 'aa': 1, 'bb':2, 'cc':3 })
+
+    def test_parse_typed_invalid(self):
+        fld = self.setUpFld(child=fields.IntegerField())
+        with self.assertRaises(ValidationError):
+            value = fld.to_internal_value({ 'aa': "1", 'bb':"xxx", 'cc':"3" })
+
+class DateTimeTest(TestCase):
+    def test_parse(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value("2015-03-03T09:35:00")
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,0))
+
+    def test_parse000(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value("2015-03-03T09:35:00.123")
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,123000))
+
+    def test_parse000000(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value("2015-03-03T09:35:00.123456")
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,123000))
+
+    def test_convert(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value(datetime(2015,3,3,9,35,0,0))
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,0))
+
+    def test_convert000(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value(datetime(2015,3,3,9,35,0,123000))
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,123000))
+
+    def test_convert000(self):
+        fld = DateTime000Field()
+        value = fld.to_internal_value(datetime(2015,3,3,9,35,0,123456))
+        self.assertEqual(value, datetime(2015,3,3,9,35,0,123000))

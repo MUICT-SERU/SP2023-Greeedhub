@@ -1,0 +1,349 @@
+'''
+Created on July 1, 2016
+@author: Andrew Abi-Mansour
+'''
+
+# !/usr/bin/python
+# -*- coding: utf8 -*- 
+# -------------------------------------------------------------------------
+#
+#   Python module for analyzing contact models for DEM simulations
+#
+# --------------------------------------------------------------------------
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# -------------------------------------------------------------------------
+
+# TODO: Support 2-particle analysis by replacing mass radius, etc. with reduces mass, radius, etc.
+# i.e. 1/m_ij = 1/m_i + 1/m_j
+
+import numpy as np
+from scipy.integrate import ode
+
+class Model:
+	def __init__(self, **params):
+
+		self.params = params
+		self.params['nSS'] = 0
+
+		if 'SS' in self.params:
+			self.params['nSS'] += len(self.params['SS'])
+
+		if 'mesh' in self.params:
+			self.params['nSS'] += len(self.params['mesh'])
+
+		if 'style' not in self.params: 
+			self.params['style'] = 'granular'
+
+		if 'units' not in self.params:	
+			self.params['units'] = 'si'
+
+		if 'dim' not in self.params:
+			self.params['dim'] = 3
+
+		if 'vel' not in self.params:
+			self.params['vel'] = ()
+
+			if 'SS' in self.params:
+				# the user did not specify the initial velocities, so we assume they're zero
+				for comp in range(len(self.params['SS'])):
+					self.params['vel'] += ((0,0,0),)
+
+		if 'nns_skin' not in self.params:
+			self.params['nns_skin'] = 1e-3
+
+		if 'nns_type' not in self.params:
+			self.params['nns_type'] = 'bin'
+
+		if 'restart' not in self.params:
+			self.params['restart'] = (5000, 'restart', 'restart.binary', False)
+
+		if 'dump_modify' not in self.params:
+			self.params['dump_modify'] = ('append', 'yes')
+
+		if 'nSim' not in self.params:
+			self.params['nSim'] =  1
+
+
+		# Expand material properties based on number of components
+		if 'materials' in self.params:
+			for item in self.params['materials']:
+				if self.params['materials'][item][1] == 'peratomtype':
+					self.params['materials'][item] = self.params['materials'][item][:2] +(('{}').format(self.params['materials'][item][2]),) * self.params['nSS']
+				if self.params['materials'][item][1] == 'peratomtypepair':
+					self.params['materials'][item] = self.params['materials'][item][:2] + ('{}'.format(self.params['nSS']),) + (('{}').format(self.params['materials'][item][2]),) * self.params['nSS']**2
+
+		# Compute mean material properties
+		self.materials = {}
+
+		if 'materials' in self.params:
+			for item in self.params['materials']:
+				if self.params['materials'][item][1] == 'peratomtype':
+					self.materials[self.params['materials'][item][0]] = np.array([np.float(it) for \
+						it in self.params['materials'][item][3:]]).mean()
+				else:	
+					self.materials[params['materials'][item][0]] = np.array([np.float(it) for \
+						it in params['materials'][item][2:]]).mean()
+
+		if 'SS' in self.params:
+
+			self.radius = []
+			self.mass = []
+
+			for ss in self.params['SS']:
+				self.radius.append(ss['radius'][1])
+				self.mass.append(4.0/3.0 * np.pi * self.radius[-1]**3.0 * ss['density'])
+
+			self.radius = np.array(self.radius)
+			self.mass = np.array(self.mass)
+
+		else:
+			print 'Warning: no components found in your supplied dictionary!'
+
+		if 'dt' not in self.params:
+			# Estimate the allowed sim timestep
+			try:
+				self.params['dt'] = (0.25 * self.contactTime()).min()
+			except:
+				self.params['dt'] = 1e-6
+
+				if 'model' in self.params:
+					print 'Model {} does not yet support estimation of contact period. Using a default value of {}'.format(self.params['model'], self.params['dt'])
+
+	def contactTime(self):
+		raise NotImplementedError('Not yet implemented')
+
+	def overlap(self, mass = None, radius = None, yMod = None, poiss = None, v0 = None, dt = None, t1 = None):
+
+		if v0 is None:
+			if 'characteristicVelocity' in self.materials:
+				v0 = self.materials['characteristicVelocity']
+			else:
+				v0 = .0
+
+		if dt is None:
+			dt = 1e-6
+
+		y0 = np.array([0, v0])
+		t0 = .0
+
+		inte = ode(self.normalForce)
+		inte.set_f_params(*(mass, radius, yMod, poiss))
+		inte.set_integrator('dopri5')
+		inte.set_initial_value(y0, t0)
+
+		if t1 is None:
+			t1 = dt * 1000.0
+
+		time, soln = [], []
+
+		while inte.successful() and inte.t < t1:
+			inte.integrate(inte.t + dt)
+			time.append(inte.t + dt)
+			soln.append(inte.y)
+
+		return np.array(time), np.array(soln)
+
+	def dissCoef(self):
+		raise NotImplementedError('Not yet implemented')
+
+	def springStiff(self):
+		raise NotImplementedError('Not yet implemented')
+
+	def normalForce(self):
+		raise NotImplementedError('Not yet implemented')
+
+	def tangForce(self):
+		raise NotImplementedError('Not yet implemented')
+
+class SpringDashpot(Model):
+	"""
+	A class that implements the linear spring model for granular materials
+	"""
+
+	def __init__(self, **params):
+
+		if 'materials' in params:
+			params['materials']['cVel'] = ('characteristicVelocity', 'scalar', '0.2', '0.2')
+
+		Model.__init__(self, **params)
+
+		if 'model-args' not in self.params:
+			self.params['model-args'] = ('gran', 'model', 'hooke', 'tangential', 'history', 'rolling_friction', \
+						'cdt', 'tangential_damping', 'on', 'limitForce', 'on', 'ktToKnUser', 'on') # the order matters here
+		else:
+			self.params['model-args'] = self.params['model-args']
+
+	def springStiff(self, radius = None, yMod = None, poiss = None, mass = None, v0 = None):
+		""" Computes the spring constant kn for F = - kn * \delta
+		"""
+		if poiss is None:
+			poiss = self.materials['poissonsRatio']
+
+		if yMod is None:
+			yMod = self.materials['youngsModulus']
+		
+		yMod /= 2.0 * (1.0  - poiss )
+
+		if v0 is None:
+			if 'characteristicVelocity' in self.materials:
+				v0 = self.materials['characteristicVelocity']
+			else:
+				v0 = 0.1 # default value of 0.1 m/s
+
+		if mass is None:
+			mass = self.mass
+
+		if radius is None:
+			radius = self.radius
+
+		return 16.0/15.0 * np.sqrt(radius) * yMod * (15.0 * mass \
+			* v0 **2.0 / (16.0 * np.sqrt(radius) * yMod))**(1.0/5.0)
+
+	def dissCoef(self, radius = None, yMod = None, poiss = None, mass = None, v0 = None, rest = None):
+
+		if rest is None:
+			rest = self.materials['coefficientRestitution']
+
+		if mass is None:
+			mass = self.mass
+
+		kn = self.springStiff(radius, yMod, poiss, mass, v0)
+		loge = np.log(rest)
+
+		return loge * np.sqrt(4.0 * mass * kn / (np.pi**2.0 + loge**2.0))
+
+	def contactTime(self, mass = None, rest = None, kn = None):
+
+		if kn is None:
+			 kn = self.springStiff()
+
+		if mass is None:
+			mass = self.mass
+
+		if rest is None:
+			rest = self.materials['coefficientRestitution']
+
+		return np.sqrt(mass * (np.pi**2.0 + np.log(rest)) / kn) 
+
+	def overlap2(self, mass = None, radius = None, yMod = None, poiss = None, v0 = None, dt = None, rest = 0):
+		""" Computes the overlap distance """
+		kn = self.springStiff(radius, yMod, poiss, mass, v0)
+
+		if rest:
+			cn = self.dissCoef(radius, yMod, poiss, mass, v0, rest)
+		else:
+			cn = 0
+
+		if dt is None:
+			dt = self.contactTime(mass, rest, kn)
+
+		time = np.arange(0, dt*100, dt)
+
+		if v0 is None:
+			v0 = self.materials['characteristicVelocity']
+
+		if mass is None:
+			mass = self.mass
+
+		if radius is None:
+			radius = self.radius
+
+		const = np.sqrt(4.0 * mass * kn - cn**2.0) / mass
+		return time, np.exp(- 0.5 * cn * time / mass) * 2.0 * v0 / const * np.sin(const * time / 2.0)
+
+	def normalForce(self, time, delta, mass = None, radius = None, yMod = None, poiss = None, v0 = None):
+		""" Returns the normal force based on Hooke's law: Fn = kn * delta """
+
+		kn = self.springStiff(radius, yMod, poiss, mass, v0)
+
+		if len(delta) > 1:
+			return np.array([delta[1], - kn * delta[0] / mass])
+		else:
+			return - kn * delta
+
+class HertzMindlin(Model):
+	"""
+	A class that implements the linear spring model for granular materials
+	"""
+
+	def __init__(self, **params):
+		Model.__init__(self, **params)
+
+		if 'model-args' not in self.params:
+			self.params['model-args'] = ('gran', 'model', 'hertz', 'tangential', 'history', 'cohesion', 'jkr', 'rolling_friction', \
+						'cdt', 'tangential_damping', 'on', 'limitForce', 'on') # the order matters here
+		else:
+			self.params['model-args'] = self.params['model-args']
+
+	def springStiff(self, radius = None, yMod = None, mass = None, v0 = None):
+		""" Computes the spring constant kn for 
+			F = - kn * \delta
+		"""
+		if poiss is None:
+			poiss = self.materials['poissonsRatio']
+
+		if yMod is None:
+			yEff = self.materials['youngsModulus']
+		
+		yEff = yMod * 0.5 / (1.0  - poiss )
+
+		if mass is None:
+			mass = self.mass
+
+		if radius is None:
+			radius = self.radius
+
+		pass
+
+	def contactTime(self, mass = None, cR = None, kn = None):
+		return 2.5e-5 * np.ones(2)
+
+	def normalForce(self, time, delta, mass = None, radius = None, yMod = None, poiss = None, v0 = None):
+		""" Computes the Hertzian normal force"""
+
+		if poiss is None:
+			poiss = self.materials['poissonsRatio']
+
+		if yMod is None:
+			yMod = self.materials['youngsModulus']
+		
+		yEff = yMod * 0.5 / (1.0  - poiss )
+
+		if radius is None:
+			radius = self.radius
+
+		if len(delta) > 1:
+			return np.array([delta[1], - 4.0/3.0 * yEff / mass * np.sqrt(radius * delta[0]) * delta[0]])
+		else: 
+			return - 4.0/3.0 * yEff * np.sqrt(radius * delta) * delta
+
+class Hysteresis(Model):
+	"""
+	A basic class that implements the Thornton/hysteresis model
+	"""
+
+	def __init__(self, **params):
+		Model.__init__(self, **params)
+
+		if 'name' not in params:
+			name = 'thorn'
+		else:
+			name = params['name']
+
+		if 'model-args' not in self.params:
+			self.params['model-args'] = ('gran', 'model', 'hysteresis/{}'.format(name), 'radiusGrowth', 'off')
+		else:
+			self.params['model-args'] = self.params['model-args']

@@ -1,0 +1,1 @@
+# Tests are run from sample/tests/test_views.py

@@ -1,0 +1,49 @@
+"""
+Overview:
+
+.. code-block:: python
+
+    from validr import SchemaParser
+
+    parser = SchemaParser()
+    validate = parser.parse({
+        "id?int": "product ID",
+        "name?str": "product name",
+        "price?float&min=0&exmin": "product price",
+        "tags": ["&minlen=1&unique", "str&desc=\"product tag\""]
+    })
+    data = validate({
+        "id": 1,
+        "name": "TeaCup",
+        "price": 9.9,
+        "tags": ["Cup"]
+    })
+    print(data)
+"""
+from setuptools import setup
+
+from Cython.Build import cythonize
+
+setup(
+    name="validr",
+    version="0.13.0",
+    description="A simple,fast,extensible python library for data validation.",
+    long_description=__doc__,
+    author="guyskk",
+    author_email='guyskk@qq.com',
+    url="https://github.com/guyskk/validr",
+    license="MIT",
+    packages=['validr'],
+    ext_modules=cythonize([
+        "validr/_schema.pyx",
+        "validr/_exception.pyx",
+        "validr/_validator.pyx",
+    ]),
+    classifiers=[
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: MIT License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python :: 3 :: Only',
+        'Topic :: Software Development :: Libraries :: Python Modules'
+    ]
+)

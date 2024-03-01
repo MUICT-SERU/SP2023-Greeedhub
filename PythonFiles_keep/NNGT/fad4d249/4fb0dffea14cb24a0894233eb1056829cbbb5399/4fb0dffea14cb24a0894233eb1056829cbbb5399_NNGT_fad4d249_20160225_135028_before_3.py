@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+#-*- coding:utf-8 -*-
+
+""" Tools for graph analysis using the graph_tool library """
+
+import scipy as sp
+import scipy.sparse.linalg as spl
+
+from nngt.globals import glib_data, glib_func
+
+
+
+#-----------------------------------------------------------------------------#
+# Set the functions
+#------------------------
+#
+
+adjacency = glib_func["adjacency"]
+assort = glib_func["assortativity"]
+edge_reciprocity = glib_func["reciprocity"]
+global_clustering = glib_func["clustering"]
+scc = glib_func["scc"]
+wcc = glib_func["wcc"]
+diameter = glib_func["diameter"]
+
+
+#-----------------------------------------------------------------------------#
+# Distributions
+#------------------------
+#
+
+def degree_distrib(net, deg_type="total", node_list=None, use_weights=True,
+                   log=False, num_bins=30):
+    '''
+    Computing the degree distribution of a network.
+    
+    Parameters
+    ----------
+    net : :class:`~nngt.Graph` or subclass
+        the network to analyze.
+    deg_type : string, optional (default: "total")
+        type of degree to consider ("in", "out", or "total").
+    node_list : list or numpy.array of ints, optional (default: None)
+        Restrict the distribution to a set of nodes (default: all nodes).
+    use_weights : bool, optional (default: True)
+        use weighted degrees (do not take the sign into account: all weights
+        are positive).
+    log : bool, optional (default: False)
+        use log-spaced bins.
+    
+    Returns
+    -------
+    counts : :class:`numpy.array`
+        number of nodes in each bin
+    deg : :class:`numpy.array`
+        bins
+    '''
+    ia_node_deg = net.get_degrees(node_list, deg_type, use_weights)
+    ra_bins = sp.linspace(ia_node_deg.min(), ia_node_deg.max(), num_bins)
+    if log:
+        ra_bins = sp.logspace(sp.log10(sp.maximum(ia_node_deg.min(),1)),
+                               sp.log10(ia_node_deg.max()), num_bins)
+    counts,deg = sp.histogram(ia_node_deg, ra_bins)
+    ia_indices = sp.argwhere(counts)
+    return counts[ia_indices], deg[ia_indices]
+            
+def betweenness_distrib(net, use_weights=True, log=False):
+    '''
+    Computing the betweenness distribution of a network
+    
+    Parameters
+    ----------
+    net : :class:`~nngt.Graph` or subclass
+        the network to analyze.
+    use_weights : bool, optional (default: True)
+        use weighted degrees (do not take the sign into account : all weights
+        are positive).
+    log : bool, optional (default: False)
+        use log-spaced bins.
+    
+    Returns
+    -------
+    ncounts : :class:`numpy.array`
+        number of nodes in each bin
+    nbetw : :class:`numpy.array`
+        bins for node betweenness
+    ecounts : :class:`numpy.array`
+        number of edges in each bin
+    ebetw : :class:`numpy.array`
+        bins for edge betweenness
+    '''
+    ia_nbetw, ia_ebetw = net.get_betweenness(use_weights)
+    num_nbins, num_ebins = int(len(ia_nbetw) / 50), int(len(ia_ebetw) / 50)
+    ra_nbins = sp.linspace(ia_nbetw.min(), ia_nbetw.max(), num_nbins)
+    ra_ebins = sp.linspace(ia_ebetw.min(), ia_ebetw.max(), num_ebins)
+    if log:
+        ra_nbins = sp.logspace(sp.log10(sp.maximum(ia_nbetw.min(),10**-8)),
+                               sp.log10(ia_nbetw.max()), num_nbins)
+        ra_ebins = sp.logspace(sp.log10(sp.maximum(ia_ebetw.min(),10**-8)),
+                               sp.log10(ia_ebetw.max()), num_ebins)
+    ncounts,nbetw = sp.histogram(ia_nbetw, ra_nbins)
+    ecounts,ebetw = sp.histogram(ia_ebetw, ra_ebins)
+    return ncounts, nbetw[:-1], ecounts, ebetw[:-1]
+
+
+#-----------------------------------------------------------------------------#
+# Scalar properties
+#------------------------
+#
+
+def assortativity(net, deg_type="total"):
+    '''
+    Assortativity of the graph.
+    àtodo: check how the various libraries functions work.
+    
+    Parameters
+    ----------
+    net : :class:`~nngt.Graph` or subclass
+        Network to analyze.
+    deg_type : string, optional (default: 'total')
+        Type of degree to take into account (among 'in', 'out' or 'total').
+    
+    Returns
+    -------
+    a float describing the network assortativity.
+    '''
+    if glib_data["name"] == "igraph":
+        return net._graph.assortativity_degree(net.is_directed())
+    elif glib_data["name"] == "graph_tool":
+        return assort(net._graph,"total")[0]
+    else:
+        return assort(net._graph)
+
+def reciprocity(net):
+    '''
+    Returns the network reciprocity, defined as :math:`E^\leftrightarrow/E`,
+    where :math:`E^\leftrightarrow` and :math:`E` are, respectively, the number
+    of bidirectional edges and the total number of edges in the network.
+    '''
+    if glib_data["name"] == "igraph":
+        return net._graph.reciprocity()
+    else:
+        return edge_reciprocity(net._graph)
+
+def clustering(net):
+    '''
+    Returns the global clustering coefficient of the graph, defined as
+    
+    .. math::
+       c = 3 \times \frac{\text{number of triangles}}
+                         {\text{number of connected triples}}
+    '''
+    if glib_data["name"] == "igraph":
+        return net._graph.transitivity_undirected()
+    else:
+        return global_clustering(net.graph)[0]
+
+def num_iedges(net):
+    ''' Returns the number of inhibitory connections. '''
+    num_einhib = len(net["type"].a < 0)
+    return float(num_einhib)/net.edge_nb()
+
+def num_scc(net, listing=False):
+    '''
+    Returns the number of strongly connected components, i.e. ensembles where 
+    all nodes inside the ensemble can reach any other node in the ensemble
+    using the directed edges.
+    
+    See also
+    --------
+    num_wcc
+    '''
+    lst_histo = None
+    if glib_data["name"] == "graph_tool":
+        vprop_comp, lst_histo = scc(net._graph,directed=True)
+    elif glib_data["name"] == "igraph":
+        lst_histo = net._graph.clusters()
+        lst_histo = [ cluster for cluster in lst_histo ]
+    else:
+        lst_histo = [ comp for comp in scc(net._graph) ]
+    if listing:
+        return len(lst_histo), lst_histo
+    else:
+        return len(lst_histo)
+        
+
+def num_wcc(net, listing=False):
+    '''
+    Connected components if the directivity of the edges is ignored (i.e. all 
+    edges are considered as bidirectional).
+    
+    See also
+    --------
+    num_scc
+    '''
+    lst_histo = None
+    if glib_data["name"] == "graph_tool":
+        vprop_comp, lst_histo = wcc(net._graph,directed=False)
+    elif glib_data["name"] == "igraph":
+        lst_histo = net._graphclusters("WEAK")
+        lst_histo = [ cluster for cluster in lst_histo ]
+    else:
+        lst_histo = [ comp for comp in wcc(net._graph) ]
+    if listing:
+        return len(lst_histo), lst_histo
+    else:
+        return len(lst_histo)
+
+def diameter(net):
+    ''' Pseudo-diameter of the graph @todo: weighted diameter'''
+    if glib_data["name"] == "igraph":
+        return net._graph.diameter()
+    elif glib_data["name"] == "networkx":
+        return diameter(net._graph)
+    else:
+        return diameter(net._graph)[0]
+
+
+#-----------------------------------------------------------------------------#
+# Spectral properties
+#------------------------
+#
+
+def spectral_radius(net, typed=True, weighted=True):
+    '''
+    Spectral radius of the graph, defined as the eigenvalue of greatest module.
+    
+    Parameters
+    ----------
+    net : :class:`~nngt.Graph` or subclass
+        Network to analyze.
+    typed : bool, optional (default: True)
+        Whether the excitatory/inhibitory type of the connnections should be
+        considered.
+    weighted : bool, optional (default: True)
+        Whether the weights should be taken into account.
+    
+    Returns
+    -------
+    the spectral radius as a float.
+    '''
+    weights = None
+    if typed and "type" in net.graph.eproperties.keys():
+        weights = net.eproperties["type"].copy()
+    if weighted and "weight" in net.graph.eproperties.keys():
+        if weights is not None:
+            weights = sp.multiply(weights,
+                                  net.graph.eproperties["weight"])
+        else:
+            weights = net.graph.eproperties["weight"].copy()
+    mat_adj = adjacency(net.graph,weights)
+    eigenval = [0]
+    try:
+        eigenval = spl.eigs(mat_adj,return_eigenvectors=False)
+    except spl.eigen.arpack.ArpackNoConvergence,err:
+        eigenval = err.eigenvalues
+    if len(eigenval):
+        return sp.amax(sp.absolute(eigenval))
+    else:
+        raise spl.eigen.arpack.ArpackNoConvergence()
+
+def adjacency_matrix(net, typed=True, weighted=True):
+    '''
+    Adjacency matrix of the graph.
+    
+    Parameters
+    ----------
+    net : :class:`~nngt.Graph` or subclass
+        Network to analyze.
+    typed : bool, optional (default: True)
+        Whether the excitatory/inhibitory type of the connnections should be
+        considered (only if the weighing factor is the synaptic strength).
+    weighted : bool, optional (default: True)
+        Whether weights should be taken into account; if True, then connections
+        are weighed by their synaptic strength, if False, then a binary matrix
+        is returned, if `weighted` is a string, then the ponderation is the
+        correponding value of the edge attribute (e.g. "distance" will return 
+        an adjacency matrix where each connection is multiplied by its length).
+    
+    Returns
+    -------
+    a :class:`~scipy.sparse.csr_matrix`.
+    '''
+    mat, mtype = None, None
+    if glib_data["name"] == "networkx":
+        if isinstance(weighted, str):
+            mat = adjacency(net.graph, weight=weighted)
+        elif weighted:
+            mat = adjacency(net.graph, weight="weight")
+        else:
+            mat = adjacency(net.graph, weight=None)
+    else:
+        weights = "weight" if weighted is True else weighted
+        mat = adjacency(net.graph, weights)
+    prop_keys = net.graph.eproperties.keys()
+    if typed and weighted in (True, "weight") and "type" in prop_keys:
+        mtype = adjacency(net.graph, weight="type")
+        return mat*mtype
+    else:
+        return mat
+        

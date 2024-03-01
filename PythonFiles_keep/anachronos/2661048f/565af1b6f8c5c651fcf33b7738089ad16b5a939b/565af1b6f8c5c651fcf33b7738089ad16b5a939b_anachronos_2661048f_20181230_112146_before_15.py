@@ -1,0 +1,36 @@
+from anachronos import Anachronos
+from anachronos.assertion import Assertion
+from anachronos.compat.jivago_streams import Stream
+
+
+class UnaryAssertion(Assertion):
+
+    def __init__(self, item):
+        self.item = item
+
+    def run(self, anachronos: Anachronos):
+        self._do_assertion(self.condition(anachronos._get_messages()), self.message())
+
+    def message(self) -> str:
+        raise NotImplementedError
+
+    def condition(self, messages: list) -> bool:
+        raise NotImplementedError
+
+
+class NeverStoredAssertion(UnaryAssertion):
+
+    def condition(self, messages: list) -> bool:
+        return Stream(messages).noneMatch(lambda x: self.item == x.payload)
+
+    def message(self) -> str:
+        return f'Failed "NeverStored" assertion. {self.item} has been stored, but should not have.'
+
+
+class NeverContainedAssertion(UnaryAssertion):
+
+    def message(self) -> str:
+        return f'Failed "NeverContains" assertion. {self.item} is contained in a message, but should not have.'
+
+    def condition(self, messages: list) -> bool:
+        return Stream(messages).noneMatch(lambda x: self.item in x.payload)

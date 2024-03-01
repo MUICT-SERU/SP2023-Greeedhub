@@ -1,0 +1,40 @@
+def test_gen_mutation(mock_person):
+    import graphene
+    from graphene.utils.str_converters import to_snake_case
+    from graphene.types.field import Field
+
+    from graphene_mongodb.mutation import gen_mutation
+    from graphene_mongodb.model import ModelSchema
+
+    model_schema = ModelSchema(mock_person, mock_person._fields, None, None)
+
+    result = gen_mutation(mock_person, model_schema.schema, model_schema.operators_mutation,
+                          model_schema.fields_mutation, None, None)
+
+    assert issubclass(result, graphene.Mutation)
+    assert hasattr(result, 'mutate')
+
+    assert result._meta.name == 'Create' + mock_person.__name__
+    assert isinstance(result._meta.fields[to_snake_case(mock_person.__name__)], Field)
+
+    assert result._meta.arguments == model_schema.operators_mutation
+
+
+def test_gen_mutation_user_mutation_func(mock_person):
+    import graphene
+    from graphene_mongodb.mutation import gen_mutation
+    from graphene_mongodb.model import ModelSchema
+
+    def mutate(args, context):
+        u = mock_person(**args)
+        u.save()
+        return u
+
+    model_schema = ModelSchema(mock_person, mock_person._fields, mutate, None)
+
+    user_mutate_func = gen_mutation(mock_person, model_schema.schema, model_schema.operators_mutation,
+                          model_schema.fields_mutation, mutate, None)
+
+    assert issubclass(user_mutate_func, graphene.Mutation)
+    assert hasattr(user_mutate_func, 'mutate')
+    assert getattr(user_mutate_func, 'mutate').__name__ == 'user_mutate'

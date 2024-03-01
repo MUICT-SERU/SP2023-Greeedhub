@@ -1,0 +1,80 @@
+import requests
+from lxml import etree
+
+from .util import _getLogger
+
+
+SOAP_TIMEOUT = 30
+NS_SOAP_ENV = 'http://schemas.xmlsoap.org/soap/envelope'
+NS_UPNP_ERR = 'urn:schemas-upnp-org:control-1-0'
+ENCODING_STYLE = 'http://schemas.xmlsoap.org/soap/encoding/'
+ENCODING = 'utf-8'
+
+
+class SOAPError(Exception):
+    pass
+
+
+class SOAPProtocolError(Exception):
+    pass
+
+
+class SOAP(object):
+    """SOAP (Simple Object Access Protocol) implementation
+    This class defines a simple SOAP client.
+    """
+    def __init__(self, url, service_type):
+        self.url = url
+        self.service_type = service_type
+        self._host = self.url.split('//', 1)[1].split('/', 1)[0]  # Get hostname portion of url
+        self._log = _getLogger('SOAP')
+
+    def call(self, action_name, arg_in=None):
+        if arg_in is None:
+            arg_in = {}
+
+        soap_env = '{%s}' % NS_SOAP_ENV
+        m = '{%s}' % self.service_type
+
+        root = etree.Element(soap_env+'Envelope', nsmap={'SOAP-ENV': NS_SOAP_ENV})
+        root.attrib[soap_env+'encodingStyle'] = ENCODING_STYLE
+        body = etree.SubElement(root, soap_env+'Body')
+        action = etree.SubElement(body, m+action_name, nsmap={'m': self.service_type})
+        for key, value in arg_in.items():
+            etree.SubElement(action, key).text = str(value)
+        body = etree.tostring(root, encoding=ENCODING, xml_declaration=True)
+
+        headers = {
+            'SOAPAction': '"%s#%s"' % (self.service_type, action_name),
+            'Host': self._host,
+            'Content-Type': 'text/xml',
+            'Content-Length': str(len(body)),
+        }
+
+        try:
+            resp = requests.post(self.url, body, headers=headers, timeout=SOAP_TIMEOUT)
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            # If the body of the error response contains XML then it should be a UPnP error,
+            # otherwise reraise the HTTPError.
+            try:
+                err_xml = etree.fromstring(exc.response.text)
+            except etree.XMLSyntaxError:
+                raise exc
+            err_code = err_xml.findtext(
+                './/{%s}errorCode' % NS_UPNP_ERR, namespaces={None: NS_UPNP_ERR})
+            err_desc = err_xml.findtext(
+                './/{%s}errorDescription' % NS_UPNP_ERR, namespaces={None: NS_UPNP_ERR})
+            if err_code is None or err_desc is None:
+                raise SOAPProtocolError(
+                    'Tags with namespace %r and names errorCode or errorDescription were not found '
+                    'in the error reponse.' % NS_UPNP_ERR)
+            raise SOAPError(int(err_code), err_desc)
+
+        xml = etree.fromstring(resp.text.strip())
+        response = xml.find(".//{%s}%sResponse" % (self.service_type, action_name))
+        if response is None:
+            raise SOAPProtocolError(
+                'Returned XML did not include an element which matches namespace %r and tag name '
+                '\'%sResponse\'.' % (self.service_type, action_name))
+        return {x.tag: x.text for x in response.getchildren()}

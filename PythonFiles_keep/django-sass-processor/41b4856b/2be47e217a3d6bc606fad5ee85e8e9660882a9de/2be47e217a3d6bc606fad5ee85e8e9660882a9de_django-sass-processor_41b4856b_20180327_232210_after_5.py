@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+from decimal import Decimal
+import inspect
+from django.conf import settings
+from django.template import TemplateSyntaxError
+from django.utils.module_loading import import_string
+
+try:
+    import sass
+except ImportError:
+    sass = None
+
+
+def get_custom_functions():
+    """
+    Return a dict of function names, to be used from inside SASS
+    """
+    def get_setting(*args):
+        try:
+            return getattr(settings, args[0])
+        except AttributeError as e:
+            raise TemplateSyntaxError(str(e))
+
+    if hasattr(get_custom_functions, '_custom_functions'):
+        return get_custom_functions._custom_functions
+    get_custom_functions._custom_functions = {sass.SassFunction('get-setting', ('key',), get_setting)}
+    for name, func in getattr(settings, 'SASS_PROCESSOR_FUNCTIONS', {}).items():
+        try:
+            if isinstance(func, str):
+                func = import_string(func)
+        except Exception as e:
+            raise TemplateSyntaxError(str(e))
+        else:
+            if not inspect.isfunction(func):
+                raise TemplateSyntaxError("{} is not a Python function")
+            sass_func = sass.SassFunction(name, inspect.getfullargspec(func).args, func)
+            get_custom_functions._custom_functions.add(sass_func)
+    return get_custom_functions._custom_functions

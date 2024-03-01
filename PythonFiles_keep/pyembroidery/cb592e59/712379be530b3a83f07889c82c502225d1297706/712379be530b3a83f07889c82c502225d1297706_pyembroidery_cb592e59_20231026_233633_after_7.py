@@ -1,0 +1,187 @@
+from __future__ import print_function
+
+import unittest
+
+from test.pattern_for_tests import *
+
+
+class TestConverts(unittest.TestCase):
+
+    def position_equals(self, stitches, j, k):
+        self.assertEqual(stitches[j][:1], stitches[k][:1])
+
+    def test_convert_tbf_to_u01(self):
+        file1 = "convert_u01.tbf"
+        file2 = "converted_tbf.u01"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_u01(f_pattern, file2)
+        t_pattern = read_u01(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(NEEDLE_SET), 16)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->u01: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_csv(self):
+        file1 = "convert_csv.tbf"
+        file2 = "converted_tbf.csv"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_csv(f_pattern, file2)
+        t_pattern = read_csv(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->csv: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_exp(self):
+        file1 = "convert_exp.tbf"
+        file2 = "converted_tbf.exp"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_exp(f_pattern, file2)
+        t_pattern = read_exp(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->exp: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_vp3(self):
+        file1 = "convert_vp3.tbf"
+        file2 = "converted_tbf.vp3"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_vp3(f_pattern, file2)
+        t_pattern = read_vp3(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->vp3: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_jef(self):
+        file1 = "convert_jef.tbf"
+        file2 = "converted_tbf.jef"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_jef(f_pattern, file2)
+        t_pattern = read_jef(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->jef: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_pec(self):
+        file1 = "convert_pec.tbf"
+        file2 = "converted_tbf.pec"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_pec(f_pattern, file2)
+        t_pattern = read_pec(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->pec: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_tbf(self):
+        file1 = "convert_tbf.tbf"
+        file2 = "converted_tbf.tbf"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_tbf(f_pattern, file2)
+        t_pattern = read_tbf(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->tbf: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_dst(self):
+        file1 = "convert_dst.tbf"
+        file2 = "converted_tbf.dst"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_dst(f_pattern, file2)
+        t_pattern = read_dst(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->dst: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_gcode(self):
+        file1 = "convert_gcode.tbf"
+        file2 = "converted_tbf.gcode"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_gcode(f_pattern, file2)
+        t_pattern = read_gcode(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->gcode: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_pes(self):
+        file1 = "convert_pes.tbf"
+        file2 = "converted_tbf.pes"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_pes(f_pattern, file2)
+        t_pattern = read_pes(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->pes: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)
+
+    def test_convert_tbf_to_xxx(self):
+        file1 = "convert_xxx.tbf"
+        file2 = "converted_tbf.xxx"
+        write_tbf(get_big_pattern(), file1)
+        f_pattern = read_tbf(file1)
+        write_xxx(f_pattern, file2)
+        t_pattern = read_xxx(file2)
+
+        self.assertIsNotNone(t_pattern)
+        self.assertEqual(t_pattern.count_stitch_commands(COLOR_CHANGE), 15)
+        self.assertEqual(t_pattern.count_stitch_commands(STITCH), 16 * 5)
+        self.position_equals(t_pattern.stitches, 0, -1)
+        print("tbf->xxx: ", t_pattern.stitches)
+        self.addCleanup(os.remove, file1)
+        self.addCleanup(os.remove, file2)

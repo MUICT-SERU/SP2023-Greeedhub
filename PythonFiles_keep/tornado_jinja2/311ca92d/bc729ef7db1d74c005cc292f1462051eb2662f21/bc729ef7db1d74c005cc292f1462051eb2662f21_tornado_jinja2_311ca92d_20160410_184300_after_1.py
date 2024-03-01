@@ -1,0 +1,1 @@
+from tornado_jinja2.integration import Jinja2Loader

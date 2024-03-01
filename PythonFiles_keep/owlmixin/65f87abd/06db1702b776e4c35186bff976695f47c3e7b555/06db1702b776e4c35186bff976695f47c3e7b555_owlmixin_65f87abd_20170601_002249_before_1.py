@@ -1,0 +1,504 @@
+# coding: utf-8
+
+from typing import TypeVar, List, Dict, Optional
+import inspect
+
+from owlmixin.owlcollections import TList, TDict
+from owlmixin.owlenum import OwlEnum, OwlObjectEnum
+from owlmixin import util
+from owlmixin.transformers import DictTransformer, JsonTransformer, YamlTransformer, traverse_dict, Option
+
+__version__ = '1.2.0'
+
+T = TypeVar('T', bound='OwlMixin')
+
+
+def _is_generic(type):
+    return hasattr(type, '__origin__')
+
+
+def assert_none(value, type_, cls):
+    assert value is not None, f'''
+.        ∧,,_∧      ,___________________
+     ⊂ ( ･ω･ )つ-  <  Required error!!  |
+   ／／/     /::/     `-------------------
+   |::|/⊂ヽノ|::|」
+／￣￣旦￣￣￣／|
+＿＿＿＿＿＿／  | |
+|------ー----ー|／
+    
+* Type {type_} must not be None.
+* Class: {cls}
+    '''
+
+
+def assert_type(value, type_):
+    assert isinstance(value, type_), f'''
+.        ∧,,_∧      ,_______________________
+     ⊂ ( ･ω･ )つ-  <  Invalid Type error!!  |
+   ／／/     /::/     `-----------------------
+   |::|/⊂ヽノ|::|」
+／￣￣旦￣￣￣／|
+＿＿＿＿＿＿／  | |
+|------ー----ー|／
+    
+* Expected: {type_}
+* Actual: {type(value)}
+* value: {value}
+    '''
+
+
+def traverse(type_, value, cls, force_snake_case: bool, force_cast: bool):
+    if hasattr(type_, '__forward_arg__'):
+        # XXX: Only if `_ForwardRef` includes myself
+        type_ = cls
+    if isinstance(value, type_):
+        return value
+
+    if not _is_generic(type_):
+        assert_none(value, type_, cls)
+        if issubclass(type_, OwlMixin):
+            return type_.from_dict(value, force_snake_case)
+        elif issubclass(type_, OwlEnum):
+            return type_(value)
+        elif issubclass(type_, OwlObjectEnum):
+            return type_.from_symbol(value)
+        else:
+            if force_cast:
+                return type_(value)
+            else:
+                assert_type(value, type_)
+                return value
+
+    o_type = type_.__origin__
+    g_type = type_.__args__
+
+    if o_type == TList:
+        assert_none(value, type_, cls)
+        assert_type(value, list)
+        return TList([traverse(g_type[0], v, cls, force_snake_case, force_cast) for v in value])
+    elif o_type == TDict:
+        assert_none(value, type_, cls)
+        assert_type(value, dict)
+        return TDict({k: traverse(g_type[0], v, cls, force_snake_case, force_cast) for k, v in value.items()})
+    elif o_type == Option:
+        return Option(None) if value is None else Option(traverse(g_type[0], value, cls, force_snake_case, force_cast))
+    else:
+        assert False, f"This generics is not supported {o_type}"
+
+
+class OwlMeta(type):
+    def __new__(meta, name, bases, class_dict):
+        cls = type.__new__(meta, name, bases, class_dict)
+        cls._methods_dict = dict(inspect.getmembers(cls, inspect.ismethod))
+        return cls
+
+
+class OwlMixin(DictTransformer, JsonTransformer, YamlTransformer, metaclass=OwlMeta):
+    @property
+    def _dict(self):
+        return self.__dict__
+
+    @classmethod
+    def from_dict(cls, d, force_snake_case=True, force_cast=False) -> T:
+        """From dict to instance
+
+        :param d: Dict
+        :type d: dict
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+
+        Usage:
+
+            >>> from owlmixin.samples import Human, Food
+            >>> human = Human.from_dict({
+            ...     "id": 1,
+            ...     "name": "Tom",
+            ...     "favorites": [
+            ...         {"name": "Apple", "names_by_lang": {"en": "Apple", "de": "Apfel"}},
+            ...         {"name": "Orange"}
+            ...     ]
+            ... })
+            >>> human.id
+            1
+            >>> human.name
+            'Tom'
+            >>> human.favorites[0].name
+            'Apple'
+            >>> human.favorites[0].names_by_lang["de"]
+            'Apfel'
+
+        If you don't set `force_snake=False` explicitly, keys are transformed to snake case as following.
+
+            >>> human = Human.from_dict({
+            ...     "--id": 1,
+            ...     "<name>": "Tom",
+            ...     "favorites": [
+            ...         {"name": "Apple", "namesByLang": {"en": "Apple"}}
+            ...     ]
+            ... })
+            >>> human.id
+            1
+            >>> human.name
+            'Tom'
+            >>> human.favorites[0].names_by_lang["en"]
+            'Apple'
+
+        You can allow extra parameters (like ``hogehoge``) if the class has ``**extra`` argument.
+
+            >>> apple = Food.from_dict({
+            ...     "name": "Apple",
+            ...     "hogehoge": "ooooooooooooooooooooo",
+            ... })
+            >>> apple.to_dict()
+            {'name': 'Apple'}
+
+        You can prohibit extra parameters (like ``hogehoge``) if the class does not have ``**extra`` argument.
+
+            >>> human = Human.from_dict({
+            ...     "id": 1,
+            ...     "name": "Tom",
+            ...     "hogehoge": "ooooooooooooooooooooo",
+            ...     "favorites": [
+            ...         {"name": "Apple", "namesByLang": {"en": "Apple", "de": "Apfel"}},
+            ...         {"name": "Orange"}
+            ...     ]
+            ... })
+            Traceback (most recent call last):
+                ...
+            TypeError: __init__() got an unexpected keyword argument 'hogehoge'
+        """
+        if isinstance(d, cls):
+            return d
+
+        instance = cls()
+        d = util.replace_keys(d, {"self": "_self"}, force_snake_case)
+
+        for n, t in cls.__annotations__.items():
+            f = cls._methods_dict.get(f'_{cls.__name__}___{n}')
+            setattr(instance, n, traverse(t, f(d.get(n)) if f else d.get(n), cls, force_snake_case, force_cast))
+
+        return instance
+
+    @classmethod
+    def from_optional_dict(cls, d, force_snake_case=True) -> Option[T]:
+        """From dict to instance. If d is None, return None.
+
+        :param d: Dict
+        :type d: Optional[dict]
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: Option[T]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> Human.from_optional_dict(None)
+            >>> Human.from_optional_dict({})
+        """
+        return Option(cls.from_dict(d, force_snake_case) if d else None)
+
+    @classmethod
+    def from_dicts(cls, ds, force_snake_case=True, force_cast=False):
+        """From list of dict to list of instance
+
+        :param ds: List of dict
+        :type ds: List[dict]
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of instance
+        :rtype: TList[T]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> humans = Human.from_dicts([
+            ...    {"id": 1, "name": "Tom", "favorites": [{"name": "Apple"}]},
+            ...    {"id": 2, "name": "John", "favorites": [{"name": "Orange"}]}
+            ... ])
+            >>> humans[0].name
+            'Tom'
+            >>> humans[1].name
+            'John'
+        """
+        return TList([cls.from_dict(d, force_snake_case, force_cast) for d in ds])
+
+    @classmethod
+    def from_optional_dicts(cls, ds, force_snake_case=True):
+        """From list of dict to list of instance. If ds is None, return None.
+
+        :param ds: List of dict
+        :type ds: Optional[List[dict]]
+        :param bool force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :return: List of instance
+        :rtype: Optional[TList[T]]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> Human.from_optional_dicts(None)
+            >>> Human.from_optional_dicts([])
+            []
+        """
+        return cls.from_dicts(ds, force_snake_case) if ds is not None else None
+
+    @classmethod
+    def from_dicts_by_key(cls, ds, force_snake_case=True):
+        """From dict of dict to dict of instance
+
+        :param ds: Dict of dict
+        :type ds: Dict[unicode, dict]
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Dict of instance
+        :rtype: TDict[T]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> humans_by_name = Human.from_dicts_by_key({
+            ...    'Tom':  {"id": 1, "name": "Tom",  "favorites": [{"name": "Apple"}]},
+            ...    'John': {"id": 2, "name": "John", "favorites": [{"name": "Orange"}]}
+            ... })
+            >>> humans_by_name['Tom'].name
+            'Tom'
+            >>> humans_by_name['John'].name
+            'John'
+        """
+        return TDict({k: cls.from_dict(v, force_snake_case) for k, v in ds.items()})
+
+    @classmethod
+    def from_optional_dicts_by_key(cls, ds, force_snake_case=True):
+        """From dict of dict to dict of instance. If ds is None, return None.
+
+        :param ds: Dict of dict
+        :type ds: Optional[Dict[unicode, dict]]
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Dict of instance
+        :rtype: Optional[TDict[T]]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> Human.from_optional_dicts_by_key(None)
+            >>> Human.from_optional_dicts_by_key({})
+            {}
+        """
+        return cls.from_dicts_by_key(ds, force_snake_case) if ds is not None else None
+
+    @classmethod
+    def from_json(cls, data, force_snake_case=True):
+        """From json string to instance
+
+        :param data: Json string
+        :type data: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> human = Human.from_json('''{
+            ...     "id": 1,
+            ...     "name": "Tom",
+            ...     "favorites": [
+            ...         {"name": "Apple", "names_by_lang": {"en": "Apple", "de": "Apfel"}},
+            ...         {"name": "Orange"}
+            ...     ]
+            ... }''')
+            >>> human.id
+            1
+            >>> human.name
+            'Tom'
+            >>> human.favorites[0].names_by_lang["de"]
+            'Apfel'
+        """
+        return cls.from_dict(util.load_json(data), force_snake_case)
+
+    @classmethod
+    def from_jsonf(cls, fpath, encoding='utf8', force_snake_case=True):
+        """From json file path to instance
+
+        :param fpath: Json file path
+        :type fpath: unicode
+        :param encoding: Json file encoding
+        :type encoding: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+        """
+        return cls.from_dict(util.load_jsonf(fpath, encoding), force_snake_case)
+
+    @classmethod
+    def from_json_to_list(cls, data, force_snake_case=True):
+        """From json string to list of instance
+
+        :param data: Json string
+        :type data: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of instance
+        :rtype: TList[T]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> humans = Human.from_json_to_list('''[
+            ...    {"id": 1, "name": "Tom",  "favorites": [{"name": "Apple"}]},
+            ...    {"id": 2, "name": "John", "favorites": [{"name": "Orange"}]}
+            ... ]''')
+            >>> humans[0].name
+            'Tom'
+            >>> humans[1].name
+            'John'
+        """
+        return cls.from_dicts(util.load_json(data), force_snake_case)
+
+    @classmethod
+    def from_jsonf_to_list(cls, fpath, encoding='utf8', force_snake_case=True):
+        """From json file path to list of instance
+
+        :param fpath: Json file path
+        :type fpath: unicode
+        :param encoding: Json file encoding
+        :type encoding: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of instance
+        :rtype: TList[T]
+        """
+        return cls.from_dicts(util.load_jsonf(fpath, encoding), force_snake_case)
+
+    @classmethod
+    def from_yaml(cls, data, force_snake_case=True):
+        """From yaml string to instance
+
+        :param data: Yaml string
+        :type data: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> human = Human.from_yaml('''
+            ... id: 1
+            ... name: Tom
+            ... favorites:
+            ...   - name: Apple
+            ...     names_by_lang:
+            ...       en: Apple
+            ...       de: Apfel
+            ...   - name: Orange
+            ... ''')
+            >>> human.id
+            1
+            >>> human.name
+            'Tom'
+            >>> human.favorites[0].names_by_lang["de"]
+            'Apfel'
+        """
+        return cls.from_dict(util.load_yaml(data), force_snake_case)
+
+    @classmethod
+    def from_yamlf(cls, fpath, encoding='utf8', force_snake_case=True):
+        """From yaml file path to instance
+
+        :param fpath: Yaml file path
+        :type fpath: unicode
+        :param encoding: Yaml file encoding
+        :type encoding: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+        """
+        return cls.from_dict(util.load_yamlf(fpath, encoding), force_snake_case)
+
+    @classmethod
+    def from_yaml_to_list(cls, data, force_snake_case=True):
+        """From yaml string to list of instance
+
+        :param data: Yaml string
+        :type data: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of instance
+        :rtype: TList[T]
+
+        Usage:
+
+            >>> from owlmixin.samples import Human
+            >>> humans = Human.from_yaml_to_list('''
+            ... - id: 1
+            ...   name: Tom
+            ...   favorites:
+            ...     - name: Apple
+            ... - id: 2
+            ...   name: John
+            ...   favorites:
+            ...     - name: Orange
+            ... ''')
+            >>> humans[0].name
+            'Tom'
+            >>> humans[1].name
+            'John'
+            >>> humans[0].favorites[0].name
+            'Apple'
+        """
+        return cls.from_dicts(util.load_yaml(data), force_snake_case)
+
+    @classmethod
+    def from_yamlf_to_list(cls, fpath, encoding='utf8', force_snake_case=True):
+        """From yaml file path to list of instance
+
+        :param fpath: Yaml file path
+        :type fpath: unicode
+        :param encoding: Yaml file encoding
+        :type encoding: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of instance
+        :rtype: TList[T]
+        """
+        return cls.from_dicts(util.load_yamlf(fpath, encoding), force_snake_case)
+
+    @classmethod
+    def from_csvf(cls, fpath, fieldnames=None, encoding='utf8', force_snake_case=True):
+        """From csv file path to list of instance
+
+        :param fpath: Csv file path
+        :type fpath: unicode
+        :param fieldnames: Specify csv header names if not included in the file
+        :type fieldnames: Optional[Sequence[unicode]]
+        :param encoding: Csv file encoding
+        :type encoding: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: List of Instance
+        :rtype: TList[T]
+        """
+        return cls.from_dicts(util.load_csvf(fpath, fieldnames, encoding),
+                              force_snake_case=force_snake_case, force_cast=True)
+
+    @classmethod
+    def from_json_url(cls, url, force_snake_case=True):
+        """From url which returns json to instance
+
+        :param url: Url which returns json
+        :type url: unicode
+        :param force_snake_case: Keys are transformed to snake case in order to compliant PEP8 if True
+        :type force_snake_case: bool
+        :return: Instance
+        :rtype: T
+        """
+        return cls.from_dict(util.load_json_url(url), force_snake_case)

@@ -1,0 +1,154 @@
+# Copyright 2016 reinforce.io. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+"""
+Replay memory to store observations and sample
+mini batches for training from.
+"""
+
+import numpy as np
+from six.moves import xrange
+from tensorforce.exceptions.tensorforce_exceptions import ArgumentMustBePositiveError
+from tensorforce.util.experiment_util import global_seed
+
+
+class ReplayMemory(object):
+    def __init__(self,
+                 memory_capacity,
+                 state_shape,
+                 action_shape,
+                 state_type=np.float32,
+                 action_type=np.int,
+                 reward_type=np.float32,
+                 concat=False,
+                 concat_length=1,
+                 deterministic_mode=False,
+                 *args,
+                 **kwargs):
+        """
+        Initializes a replay memory.
+
+        :param memory_capacity: Memory size
+        :param state_shape: Shape of state tensor
+        :param state_type: Data type of state tensor
+        :param action_shape: Shape of action tensor
+        :param action_type: Data type of action tensor
+        :param reward_type: Data type of reward function
+        :param concat: Whether to apply preprocessing to satisfy Markov property -
+        for some environments, single frames do not satisfy the Markov property but
+        a concatenation of frames (for Atari 4) does.
+        :param concat_length: State preprocessor function sigma, here given as
+        length to satisfy Markov property, default 1 means no concatenation of states.
+        :param deterministic_mode: If true, global random number generation
+        is controlled by passing the same seed to all generators, if false,
+        no seed is used for sampling.
+        """
+
+        self.step_count = 0
+        self.capacity = memory_capacity
+        self.size = 0
+        self.concat = concat
+        self.concat_length = concat_length
+
+        # Explicitly set data types for every tensor to make for easier adjustments
+        # if backend precision changes
+        self.state_shape = state_shape
+        self.state_type = state_type
+        self.action_shape = action_shape
+        self.action_type = action_type
+        self.reward_type = reward_type
+
+        self.states = np.zeros((self.capacity,) + self.state_shape, dtype=self.state_type)
+        self.actions = np.zeros((self.capacity,) + self.action_shape, dtype=self.action_type)
+        self.rewards = np.zeros(self.capacity, dtype=self.reward_type)
+        self.terminals = np.zeros(self.capacity, dtype=bool)
+
+        if deterministic_mode:
+            self.random = global_seed()
+        else:
+            self.random = np.random.RandomState()
+
+        # Indices to control sampling
+        self.bottom = 0
+        self.top = 0
+
+    def add_experience(self, state, action, reward, terminal):
+        """
+        Inserts an experience tuple to the memory.
+
+        :param state: State observed
+        :param action: Action(s) taken
+        :param reward: Reward seen after taking action
+        :param terminal: Boolean whether episode ended
+        :return:
+        """
+
+        self.states[self.top] = state
+        self.actions[self.top] = action
+        self.rewards[self.top] = reward
+        self.terminals[self.top] = terminal
+
+        if self.size == self.capacity:
+            self.bottom = (self.bottom + 1) % self.capacity
+        else:
+            self.size += 1
+        self.top = (self.top + 1) % self.capacity
+
+    def sample_batch(self, batch_size):
+        """
+        Sample a mini batch of stored experiences.
+        :param batch_size:
+        :return: A Tensor containing experience tuples of length batch_size
+
+        """
+
+        if batch_size < 0:
+            raise ArgumentMustBePositiveError('Batch size must be positive')
+
+        batch_states = np.zeros((batch_size, self.concat_length) + self.state_shape,
+                                dtype=self.state_type)
+        batch_actions = np.zeros((batch_size, self.action_shape), dtype=self.action_type)
+        batch_rewards = np.zeros(batch_size, dtype=self.reward_type)
+        batch_next_states = np.zeros((batch_size, self.concat_length) + self.state_shape,
+                                     dtype=self.state_type)
+        batch_terminals = np.zeros(batch_size, dtype='bool')
+
+        for i in xrange(batch_size):
+            start_index = self.random.randint(self.bottom,
+                                              self.bottom + self.size - self.concat_length)
+            end_index = start_index
+            if self.concat:
+                state_index = np.arange(start_index, self.concat_length, 1)
+                end_index = start_index + self.concat_length - 1
+            else:
+                state_index = start_index
+
+            # Either range or single index depending on whether concatenation is active
+            next_state_index = state_index + 1
+
+            # Skip if concatenated index is between episodes
+            if self.concat and np.any(self.terminals.take(state_index[0:-1], mode='wrap')):
+                continue
+
+            batch_states[i] = self.states.take(state_index, axis=0, mode='wrap')
+            batch_actions[i] = self.actions.take(end_index, mode='wrap')
+            batch_rewards[i] = self.rewards.take(end_index, mode='wrap')
+            batch_next_states[i] = self.states.take(next_state_index, axis=0, mode='wrap')
+
+        return dict(states=batch_states,
+                    actions=batch_actions,
+                    rewards=batch_rewards,
+                    next_states=batch_next_states,
+                    terminals=batch_terminals)
