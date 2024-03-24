@@ -120,7 +120,7 @@ def main():
     classified_author_folder = 'Classified_Author_CompetencyScore'
 
     # Path to the CSV file containing project names
-    all_projects_file = 'all_projects.csv'
+    all_projects_file = 'filtered_all_projects.csv'
 
     # Get projects with underscores
     projects_with_underscores = get_projects_with_underscores(all_projects_file)
