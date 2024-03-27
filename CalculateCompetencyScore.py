@@ -111,7 +111,7 @@ def get_projects_with_underscores(all_projects_file: str) -> Set[str]:
 
 def main():
     # Input folder containing all {ProjectName}_CompetencyScore.csv files
-    input_folder = 'CompetencyScore_keep'
+    input_folder = 'CompetencyScore'
 
     # Output folder for classified JSON files based on ProjectName
     classified_project_folder = 'Classified_Project_CompetencyScore'
