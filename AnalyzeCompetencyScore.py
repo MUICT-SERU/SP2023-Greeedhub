@@ -51,7 +51,7 @@ def append_to_csv(source_file, target_file, header=None):
     """Append contents of source_file to target_file."""
     with open(source_file, 'r', encoding='utf-8') as source:
         with open(target_file, 'a', newline='', encoding='utf-8') as target:
-            reader = csv.reader(source)
+            reader = csv.reader((line.replace('\0', '') for line in source))  # Skip null characters
             writer = csv.writer(target)
 
             if os.path.getsize(target_file) == 0 and header is not None:
