@@ -10,7 +10,7 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
 # Specify the directory containing JSON files
-directory_path = r"C:\Users\Eff\Desktop\y4\senior\dataset\visualization\DeadAlive40Projects"
+directory_path = r"\Users\username\projects\my-app"
 
 # Get the project name from the directory path
 project_name = os.path.basename(directory_path)
