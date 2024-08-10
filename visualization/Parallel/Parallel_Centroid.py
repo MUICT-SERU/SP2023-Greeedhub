@@ -5,8 +5,7 @@ import os
 from sklearn.cluster import KMeans
 
 # Specify the directory containing JSON files
-directory_path = r"\Users\username\projects\my-app"
-
+directory_path = r"C:\Users\Eff\Desktop\y4\senior\dataset\visualization\DeadAlive40Projects"
 # List all JSON files in the directory
 json_files = [f for f in os.listdir(directory_path) if f.endswith('.json')]
 
