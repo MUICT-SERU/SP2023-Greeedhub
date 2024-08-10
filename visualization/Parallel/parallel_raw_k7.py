@@ -85,3 +85,4 @@ fig = px.scatter(pivot_df, x=pca_data[:, 0], y=pca_data[:, 1], color='Cluster', 
                  title='K-Means Clustering of Contributors (Raw Value, K=7)', labels={'x': 'PCA Component 1', 'y': 'PCA Component 2'},
                  color_discrete_map=cluster_colors, category_orders={'Cluster': ['0', '1', '2', '3', '4', '5', '6']})
 fig.show()
+
