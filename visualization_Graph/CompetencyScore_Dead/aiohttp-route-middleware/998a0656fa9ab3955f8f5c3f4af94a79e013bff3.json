@@ -1,0 +1,33 @@
+{
+    "CommitHash": "998a0656fa9ab3955f8f5c3f4af94a79e013bff3",
+    "ProjectName": "aiohttp-route-middleware",
+    "AuthorID": "c4282b88",
+    "AuthorDateFormat": "20180819",
+    "AuthorTimeFormat": "113245",
+    "Levels": {
+        "After": {
+            "A1": 56,
+            "A2": 64,
+            "B1": 10,
+            "B2": 0,
+            "C1": 2,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 48,
+            "A2": 54,
+            "B1": 10,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 8,
+            "A2": 10,
+            "B1": 0,
+            "B2": 0,
+            "C1": 2,
+            "C2": 0
+        }
+    }
+}

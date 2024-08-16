@@ -1,0 +1,33 @@
+{
+    "CommitHash": "049bea5fb922d33da6442110aaf12401a82987cd",
+    "ProjectName": "aa2atom",
+    "AuthorID": "1437ee96",
+    "AuthorDateFormat": "20190711",
+    "AuthorTimeFormat": "125425",
+    "Levels": {
+        "After": {
+            "A1": 326,
+            "A2": 199,
+            "B1": 8,
+            "B2": 8,
+            "C1": 10,
+            "C2": 1
+        },
+        "Before": {
+            "A1": 20,
+            "A2": 18,
+            "B1": 2,
+            "B2": 7,
+            "C1": 1,
+            "C2": 1
+        },
+        "Difference": {
+            "A1": 306,
+            "A2": 181,
+            "B1": 6,
+            "B2": 1,
+            "C1": 9,
+            "C2": 0
+        }
+    }
+}

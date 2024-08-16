@@ -1,0 +1,33 @@
+{
+    "CommitHash": "5075ac9269878f0d089bb78762a6b947267786d5",
+    "ProjectName": "aioasuswrt",
+    "AuthorID": "702b0624",
+    "AuthorDateFormat": "20190218",
+    "AuthorTimeFormat": "115056",
+    "Levels": {
+        "After": {
+            "A1": 57,
+            "A2": 104,
+            "B1": 9,
+            "B2": 1,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 57,
+            "A2": 100,
+            "B1": 11,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 4,
+            "B1": 0,
+            "B2": 1,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

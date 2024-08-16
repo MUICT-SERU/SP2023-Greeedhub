@@ -1,0 +1,33 @@
+{
+    "CommitHash": "6e68fd51c597ee10032dd7b835a39c8072d879a5",
+    "ProjectName": "aisparser",
+    "AuthorID": "d6024363",
+    "AuthorDateFormat": "20170608",
+    "AuthorTimeFormat": "001340",
+    "Levels": {
+        "After": {
+            "A1": 149,
+            "A2": 132,
+            "B1": 29,
+            "B2": 0,
+            "C1": 1,
+            "C2": 9
+        },
+        "Before": {
+            "A1": 140,
+            "A2": 126,
+            "B1": 18,
+            "B2": 0,
+            "C1": 1,
+            "C2": 7
+        },
+        "Difference": {
+            "A1": 9,
+            "A2": 6,
+            "B1": 11,
+            "B2": 0,
+            "C1": 0,
+            "C2": 2
+        }
+    }
+}

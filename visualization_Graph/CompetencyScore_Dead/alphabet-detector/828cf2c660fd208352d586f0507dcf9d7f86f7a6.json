@@ -1,0 +1,33 @@
+{
+    "CommitHash": "828cf2c660fd208352d586f0507dcf9d7f86f7a6",
+    "ProjectName": "alphabet-detector",
+    "AuthorID": "a18dbbb1",
+    "AuthorDateFormat": "20151122",
+    "AuthorTimeFormat": "033041",
+    "Levels": {
+        "After": {
+            "A1": 39,
+            "A2": 71,
+            "B1": 11,
+            "B2": 37,
+            "C1": 2,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 25,
+            "A2": 23,
+            "B1": 10,
+            "B2": 0,
+            "C1": 2,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 14,
+            "A2": 48,
+            "B1": 1,
+            "B2": 37,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

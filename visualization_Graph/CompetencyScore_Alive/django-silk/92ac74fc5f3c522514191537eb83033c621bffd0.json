@@ -1,0 +1,33 @@
+{
+    "CommitHash": "92ac74fc5f3c522514191537eb83033c621bffd0",
+    "ProjectName": "django-silk",
+    "AuthorID": "bef199b5",
+    "AuthorDateFormat": "20150413",
+    "AuthorTimeFormat": "140148",
+    "Levels": {
+        "After": {
+            "A1": 141,
+            "A2": 120,
+            "B1": 24,
+            "B2": 2,
+            "C1": 0,
+            "C2": 3
+        },
+        "Before": {
+            "A1": 140,
+            "A2": 120,
+            "B1": 23,
+            "B2": 2,
+            "C1": 0,
+            "C2": 3
+        },
+        "Difference": {
+            "A1": 1,
+            "A2": 0,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

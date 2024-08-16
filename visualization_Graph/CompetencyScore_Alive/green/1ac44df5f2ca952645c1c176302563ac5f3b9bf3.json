@@ -1,0 +1,33 @@
+{
+    "CommitHash": "1ac44df5f2ca952645c1c176302563ac5f3b9bf3",
+    "ProjectName": "green",
+    "AuthorID": "fd0da10b",
+    "AuthorDateFormat": "20160519",
+    "AuthorTimeFormat": "163258",
+    "Levels": {
+        "After": {
+            "A1": 103,
+            "A2": 143,
+            "B1": 22,
+            "B2": 1,
+            "C1": 1,
+            "C2": 1
+        },
+        "Before": {
+            "A1": 102,
+            "A2": 141,
+            "B1": 22,
+            "B2": 1,
+            "C1": 1,
+            "C2": 1
+        },
+        "Difference": {
+            "A1": 1,
+            "A2": 2,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

@@ -1,0 +1,33 @@
+{
+    "CommitHash": "bbdc6f6a54ef1d58eb83b29926eb4f3b4aca2876",
+    "ProjectName": "isovar",
+    "AuthorID": "4fa28961",
+    "AuthorDateFormat": "20160422",
+    "AuthorTimeFormat": "132700",
+    "Levels": {
+        "After": {
+            "A1": 156,
+            "A2": 100,
+            "B1": 20,
+            "B2": 5,
+            "C1": 7,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 143,
+            "A2": 90,
+            "B1": 17,
+            "B2": 5,
+            "C1": 6,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 13,
+            "A2": 10,
+            "B1": 3,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        }
+    }
+}

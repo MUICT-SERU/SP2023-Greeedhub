@@ -1,0 +1,33 @@
+{
+    "CommitHash": "5e189f0ddf9e0f72a8b8f7394165daa3cc83826a",
+    "ProjectName": "affinegap",
+    "AuthorID": "e6b931f7",
+    "AuthorDateFormat": "20151202",
+    "AuthorTimeFormat": "153435",
+    "Levels": {
+        "After": {
+            "A1": 10,
+            "A2": 56,
+            "B1": 4,
+            "B2": 36,
+            "C1": 0,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 10,
+            "A2": 54,
+            "B1": 2,
+            "B2": 38,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 2,
+            "B1": 2,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

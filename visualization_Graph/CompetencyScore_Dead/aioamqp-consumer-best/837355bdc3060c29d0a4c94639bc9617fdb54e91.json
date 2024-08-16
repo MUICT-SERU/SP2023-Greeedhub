@@ -1,0 +1,33 @@
+{
+    "CommitHash": "837355bdc3060c29d0a4c94639bc9617fdb54e91",
+    "ProjectName": "aioamqp-consumer-best",
+    "AuthorID": "1151a917",
+    "AuthorDateFormat": "20220807",
+    "AuthorTimeFormat": "003053",
+    "Levels": {
+        "After": {
+            "A1": 331,
+            "A2": 555,
+            "B1": 100,
+            "B2": 28,
+            "C1": 20,
+            "C2": 3
+        },
+        "Before": {
+            "A1": 336,
+            "A2": 562,
+            "B1": 101,
+            "B2": 28,
+            "C1": 20,
+            "C2": 3
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 0,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

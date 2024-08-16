@@ -1,0 +1,33 @@
+{
+    "CommitHash": "91e04dc914c62f547c8c0572796233c0feeb06c4",
+    "ProjectName": "adversarial-vision-challenge",
+    "AuthorID": "a285d770",
+    "AuthorDateFormat": "20180625",
+    "AuthorTimeFormat": "141422",
+    "Levels": {
+        "After": {
+            "A1": 49,
+            "A2": 54,
+            "B1": 10,
+            "B2": 1,
+            "C1": 2,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 48,
+            "A2": 54,
+            "B1": 10,
+            "B2": 1,
+            "C1": 2,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 1,
+            "A2": 0,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

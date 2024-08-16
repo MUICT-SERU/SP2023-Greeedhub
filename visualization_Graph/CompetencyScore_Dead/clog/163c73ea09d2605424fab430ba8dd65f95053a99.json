@@ -1,0 +1,33 @@
+{
+    "CommitHash": "163c73ea09d2605424fab430ba8dd65f95053a99",
+    "ProjectName": "clog",
+    "AuthorID": "cfe9caf3",
+    "AuthorDateFormat": "20150918",
+    "AuthorTimeFormat": "092554",
+    "Levels": {
+        "After": {
+            "A1": 1,
+            "A2": 0,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 1,
+            "A2": 1,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 0,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

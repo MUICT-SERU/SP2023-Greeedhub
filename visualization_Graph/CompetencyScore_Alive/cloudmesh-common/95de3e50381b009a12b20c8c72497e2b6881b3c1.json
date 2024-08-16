@@ -1,0 +1,33 @@
+{
+    "CommitHash": "95de3e50381b009a12b20c8c72497e2b6881b3c1",
+    "ProjectName": "cloudmesh-common",
+    "AuthorID": "84032fb5",
+    "AuthorDateFormat": "20171016",
+    "AuthorTimeFormat": "073358",
+    "Levels": {
+        "After": {
+            "A1": 129,
+            "A2": 123,
+            "B1": 18,
+            "B2": 2,
+            "C1": 3,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 112,
+            "A2": 93,
+            "B1": 14,
+            "B2": 1,
+            "C1": 3,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 17,
+            "A2": 30,
+            "B1": 4,
+            "B2": 1,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

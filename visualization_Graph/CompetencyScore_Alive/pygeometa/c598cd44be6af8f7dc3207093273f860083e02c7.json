@@ -1,0 +1,33 @@
+{
+    "CommitHash": "c598cd44be6af8f7dc3207093273f860083e02c7",
+    "ProjectName": "pygeometa",
+    "AuthorID": "37a3ec9d",
+    "AuthorDateFormat": "20210911",
+    "AuthorTimeFormat": "074206",
+    "Levels": {
+        "After": {
+            "A1": 112,
+            "A2": 72,
+            "B1": 12,
+            "B2": 4,
+            "C1": 2,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 103,
+            "A2": 59,
+            "B1": 13,
+            "B2": 4,
+            "C1": 2,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 9,
+            "A2": 13,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

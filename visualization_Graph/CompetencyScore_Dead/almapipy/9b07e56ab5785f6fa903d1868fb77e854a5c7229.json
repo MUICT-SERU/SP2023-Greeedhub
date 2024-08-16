@@ -1,0 +1,33 @@
+{
+    "CommitHash": "9b07e56ab5785f6fa903d1868fb77e854a5c7229",
+    "ProjectName": "almapipy",
+    "AuthorID": "876d750c",
+    "AuthorDateFormat": "20190912",
+    "AuthorTimeFormat": "150015",
+    "Levels": {
+        "After": {
+            "A1": 89,
+            "A2": 94,
+            "B1": 15,
+            "B2": 0,
+            "C1": 3,
+            "C2": 1
+        },
+        "Before": {
+            "A1": 82,
+            "A2": 91,
+            "B1": 13,
+            "B2": 0,
+            "C1": 3,
+            "C2": 1
+        },
+        "Difference": {
+            "A1": 7,
+            "A2": 3,
+            "B1": 2,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

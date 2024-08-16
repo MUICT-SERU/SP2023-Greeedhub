@@ -1,0 +1,33 @@
+{
+    "CommitHash": "7345fe99adcd6ab24d28ae7ed9d2b239a5bd231d",
+    "ProjectName": "indra",
+    "AuthorID": "b57f55c0",
+    "AuthorDateFormat": "20170920",
+    "AuthorTimeFormat": "132837",
+    "Levels": {
+        "After": {
+            "A1": 656,
+            "A2": 659,
+            "B1": 94,
+            "B2": 20,
+            "C1": 43,
+            "C2": 9
+        },
+        "Before": {
+            "A1": 651,
+            "A2": 653,
+            "B1": 94,
+            "B2": 20,
+            "C1": 43,
+            "C2": 8
+        },
+        "Difference": {
+            "A1": 5,
+            "A2": 6,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 1
+        }
+    }
+}

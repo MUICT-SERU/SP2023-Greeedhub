@@ -1,0 +1,33 @@
+{
+    "CommitHash": "ee9dcf4a9c9db841e8932a0d49a5cd1fda437867",
+    "ProjectName": "ffmpeg-progress",
+    "AuthorID": "13f804a3",
+    "AuthorDateFormat": "20181220",
+    "AuthorTimeFormat": "080341",
+    "Levels": {
+        "After": {
+            "A1": 56,
+            "A2": 51,
+            "B1": 15,
+            "B2": 1,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 55,
+            "A2": 48,
+            "B1": 15,
+            "B2": 1,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 1,
+            "A2": 3,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

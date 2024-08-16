@@ -1,0 +1,33 @@
+{
+    "CommitHash": "549f0a9d10339cc9efd6a8931f244366cca41f48",
+    "ProjectName": "boost-histogram",
+    "AuthorID": "0b16bad7",
+    "AuthorDateFormat": "20191104",
+    "AuthorTimeFormat": "071921",
+    "Levels": {
+        "After": {
+            "A1": 339,
+            "A2": 396,
+            "B1": 74,
+            "B2": 25,
+            "C1": 10,
+            "C2": 3
+        },
+        "Before": {
+            "A1": 257,
+            "A2": 293,
+            "B1": 65,
+            "B2": 14,
+            "C1": 9,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 82,
+            "A2": 103,
+            "B1": 9,
+            "B2": 11,
+            "C1": 1,
+            "C2": 1
+        }
+    }
+}

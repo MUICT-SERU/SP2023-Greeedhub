@@ -1,0 +1,33 @@
+{
+    "CommitHash": "587d24a611b9cb24b2c93b3acf651d038a172fb8",
+    "ProjectName": "aorun",
+    "AuthorID": "da4e5fc7",
+    "AuthorDateFormat": "20170324",
+    "AuthorTimeFormat": "204337",
+    "Levels": {
+        "After": {
+            "A1": 44,
+            "A2": 44,
+            "B1": 7,
+            "B2": 6,
+            "C1": 4,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 25,
+            "A2": 19,
+            "B1": 3,
+            "B2": 2,
+            "C1": 4,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 19,
+            "A2": 25,
+            "B1": 4,
+            "B2": 4,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}
