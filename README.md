@@ -22,6 +22,10 @@
     * Step 5: Run dict.py to start the Competency Score extraction
     * Step 6: Analyze for tracking the status of each project whether that project is successfully extracted
     * Step 7: Calculate the competency score into sum A1 to C2 from each project
+ * Set of Output 
+
+ #### ```CalculateCompetencyScore.py```
+ * This code is the Step 7 in ```AnalyzeCompetencyScore.py```
        
 <br />
 
@@ -33,13 +37,14 @@
 - ```pip install -r requirements. txt```
 
 ### Step 2: Start Extract GitHub Data from listed repo using code from ```PyDriller_ExtractData.py```
-- Start by running the code ```python 1_PyDriller_ExtractData.py```
+- Start by running the code ```python PyDriller_ExtractData.py```
 - Wait until all projects are extracted and stored in directories
 
   --- Take a big break ---
 
 ### Step 3: Analyze GitHub Data and convert it to Competency Score list from ```CalculateCompetencyScore.py```
-- 
+- Running the code ```AnalyzeCompetencyScore.py```
+- Wait until the Competency Score stores in the directory.
 
 <br />
 
