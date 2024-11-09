@@ -28,14 +28,14 @@
        
 <br />
 
-## How to run PyGress
-### ➡ Step 0: Clone this repository
+## ➡ Main Step 1: How to get Competency Score
+###  Step 0: Clone this repository
 - Command script ```git clone https://github.com/MUICT-SERU/SP2023-Greeedhub.git```
   <br></br>
-### ➡ Step 1: Install required libraries in ```requirements.txt```
+###  Step 1: Install required libraries in ```requirements.txt```
 - Command script ```pip install -r requirements. txt```
   <br></br>
-### ➡ Step 2: Start Extract GitHub Data from listed repo using code from ```PyDriller_ExtractData.py```
+###  Step 2: Start Extract GitHub Data from listed repo using code from ```PyDriller_ExtractData.py```
 - Start by running the script ```python PyDriller_ExtractData.py```
 - Wait until all projects are extracted and stored in directories
 - The result you will get from this step is code after and before commits from all projects in the directory ```PythonFiles/{ProjectName}```
@@ -43,17 +43,16 @@
 
   --- Take a big break until all projects are extracted ---
   <br></br>
-### ➡ Step 3: Analyze GitHub Data and convert it to the Competency Score list
+###  Step 3: Analyze GitHub Data and convert it to the Competency Score list
 - Running the code ```AnalyzeCompetencyScore.py```
 - Wait until the Competency Score stores in the directory.
 - The result you will get from this step is the list of all competency scores in each project in the directory ```CompetencyScore/{ProjectName}_CompetencyScore.csv``` (Metadata is coming soon) 
 - Another result is the grouped list of competency scores (grouped by competency score A1 to C2 as 6 grouped lists).
   
   --- Take another huge break until the competency score from all projects are calculated ---  
-  <br></br>
 <br />
 
-## How to run the visualization
+## ➡ Main Step 2: How to run the visualization
 1. step 1
 2. step 2
 3. step 3
