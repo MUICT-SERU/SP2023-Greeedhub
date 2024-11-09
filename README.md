@@ -31,10 +31,10 @@
 ## How to run PyGress
 ### ➡ Step 0: Clone this repository
 - Command script ```git clone https://github.com/MUICT-SERU/SP2023-Greeedhub.git```
-
+  <br></br>
 ### ➡ Step 1: Install required libraries in ```requirements.txt```
 - Command script ```pip install -r requirements. txt```
-
+  <br></br>
 ### ➡ Step 2: Start Extract GitHub Data from listed repo using code from ```PyDriller_ExtractData.py```
 - Start by running the script ```python PyDriller_ExtractData.py```
 - Wait until all projects are extracted and stored in directories
@@ -42,15 +42,15 @@
 - Another result is the GitHub data in directory ```PythonCommits_data/{ProjectName}.csv``` (Metadata is coming soon) 
 
   --- Take a big break until all projects are extracted ---
-
+  <br></br>
 ### ➡ Step 3: Analyze GitHub Data and convert it to the Competency Score list
 - Running the code ```AnalyzeCompetencyScore.py```
 - Wait until the Competency Score stores in the directory.
 - The result you will get from this step is the list of all competency scores in each project in the directory ```CompetencyScore/{ProjectName}_CompetencyScore.csv``` (Metadata is coming soon) 
-- Another result is the grouped list of competency scores (grouped by competency score A1 to C2 as 6 grouped lists), which is in the directory ```นั่นสิ ลืมแล้ว```
+- Another result is the grouped list of competency scores (grouped by competency score A1 to C2 as 6 grouped lists).
   
   --- Take another huge break until the competency score from all projects are calculated ---  
-
+  <br></br>
 <br />
 
 ## How to run the visualization
