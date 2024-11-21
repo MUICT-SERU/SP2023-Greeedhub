@@ -53,7 +53,13 @@
 
 <br />
 
-## How to run the visualization
+## How to run the K-means & Parallel visualization
+1. Install Required Dependencies
+  `pip install -r requirements.txt`
+2. Update the directory_path in the `directory_path = "path/to/your/dataset"`
+3. Run the project
+
+## How to run the Spider Chart visualization
 1. step 1
 2. step 2
 3. step 3
