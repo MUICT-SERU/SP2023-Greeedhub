@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PYGRESS - Competency Score Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            background: linear-gradient(to right, #f9fafb, #f9fafb);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background-color: #ffffff;
+            padding: 0px 40px 40px;
+            border-radius: 16px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
+            transition: transform 0.3s ease;
+        }
+
+        .logo {
+            display: block;
+            margin: 0 auto;
+            max-width: 150px;
+            height: auto;
+        }
+
+        .container:hover {
+            transform: translateY(-2px);
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 32px;
+            color: #1f2937;
+            margin: 0;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            text-align: center;
+            font-size: 18px;
+            font-weight: 400;
+            color: #374151;
+            margin-top: 0;
+            margin-bottom: 30px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #374151;
+            display: block;
+            margin-top: 24px;
+            margin-bottom: 8px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"],
+        input[type="url"] {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 100px;
+            background-color: #f3f4f6;
+            color: #1f2937;
+            transition: border-color 0.2s;
+        }
+
+        input:hover {
+            background-color: #e5e7eb;
+            border: 1px solid #3b82f6;
+        }
+        
+        input[type="text"]:focus,
+        input[type="url"]:focus {
+            border-color: #3b82f6;
+            outline: none;
+        }
+
+        button {
+            background-color: #3b82f6;
+            color: #fff;
+            padding: 14px 20px;
+            border: 1px solid #3b82f6;
+            border-radius: 100px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            background-color: #2563eb;
+            border: 1px solid #2563eb;
+            color: #fff;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            color: #374151;
+        }
+
+        .error-message {
+            color: #dc2626;
+            background-color: #fee2e2;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            border: 1px solid #dc2626;
+        }
+
+        .visualization-container {
+            margin-top: 30px;
+            background-color: #f3f4f6; /* light gray */
+            border-radius: 12px;
+            padding: 32px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .visualization-plot {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #e5e7eb;
+            padding: 20px;
+        }
+
+        /* Plotly light theme overrides */
+        .js-plotly-plot .plotly,
+        .js-plotly-plot .plotly .main-svg,
+        .js-plotly-plot .plotly .bglayer rect {
+            background-color: #fff !important;
+        }
+
+        .js-plotly-plot .plotly text,
+        .js-plotly-plot .plotly .xtick text,
+        .js-plotly-plot .plotly .ytick text,
+        .js-plotly-plot .plotly .xtitle,
+        .js-plotly-plot .plotly .ytitle {
+            fill: #1f2937 !important;
+            font-family: 'Inter', sans-serif !important;
+        }
+
+        .js-plotly-plot .plotly .xtick,
+        .js-plotly-plot .plotly .ytick {
+            stroke: #e5e7eb !important;
+        }
+
+        .js-plotly-plot .plotly .gridlayer path {
+            stroke: #e5e7eb !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="{{ url_for('static', filename='logopygress.jpg') }}" alt="PYGRESS Logo" class="logo">
+        <h2>Analyzing coding competency of Python contributors in open-source projects</h2>
+
+        <form id="analysisForm">
+            <label for="githubUrl">Enter your GitHub repository URL:</label>
+            <div class="input-group">
+                <input type="url" id="githubUrl" placeholder="https://github.com/username/project" required>
+                <button type="submit">Generate</button>
+            </div>
+        </form>
+
+        <div id="loading" class="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Analyzing repository... This may take a few minutes.</p>
+        </div>
+
+        <div id="error" class="error-message"></div>
+
+        <label style="margin-top: 24px">Visualization Results:</label>
+        <div id="visualizations" class="visualization-container">
+            <!-- Visualizations will be inserted here -->
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const githubUrl = document.getElementById('githubUrl').value;
+            const loading = document.getElementById('loading');
+            const visualizations = document.getElementById('visualizations');
+            const error = document.getElementById('error');
+            
+            loading.style.display = 'block';
+            visualizations.innerHTML = '';
+            error.style.display = 'none';
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ github_url: githubUrl })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.visualizations.length === 0) {
+                        visualizations.innerHTML = "<div style='color:#374151;text-align:center;'>No data available for visualization.</div>";
+                        return;
+                    }
+                    // Render each visualization
+                    data.visualizations.forEach((viz, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'visualization-plot';
+                        div.id = `plot-${index}`;
+
+                        // Force all traces to visible colors in the frontend
+                        viz.data.forEach(trace => {
+                            if (trace.type === 'bar' || trace.type === 'scatter' || trace.type === 'scatterpolar') {
+                                if (!trace.marker) trace.marker = {};
+                                if (!trace.marker.color || trace.marker.color === '#fff' || trace.marker.color === 'white') {
+                                    trace.marker.color = '#2563eb'; // blue
+                                }
+                                if (trace.line && (!trace.line.color || trace.line.color === '#fff' || trace.line.color === 'white')) {
+                                    trace.line.color = '#2563eb';
+                                }
+                            }
+                            if (trace.type === 'heatmap') {
+                                trace.colorscale = 'Blues';
+                            }
+                        });
+
+                        // Apply consistent theme to all visualizations
+                        const layout = {
+                            ...viz.layout,
+                            paper_bgcolor: '#fff',
+                            plot_bgcolor: '#fff',
+                            font: {
+                                family: 'Inter, sans-serif',
+                                color: '#1f2937', // dark gray
+                                size: 16
+                            },
+                            margin: {
+                                l: 50,
+                                r: 20,
+                                t: 50,
+                                b: 50
+                            }
+                        };
+
+                        // Add specific layout adjustments for different plot types
+                        if (viz.data[0].type === 'heatmap') {
+                            layout.height = 500;
+                            layout.margin.b = 100; // More space for x-axis labels
+                        } else if (viz.data[0].type === 'scatterpolar') {
+                            layout.height = 500;
+                            layout.width = 500;
+                            layout.margin = {
+                                l: 50,
+                                r: 50,
+                                t: 50,
+                                b: 50
+                            };
+                        }
+
+                        // Update axis styling for visibility
+                        if (layout.xaxis) {
+                            layout.xaxis = {
+                                ...layout.xaxis,
+                                gridcolor: '#e5e7eb',
+                                zerolinecolor: '#e5e7eb',
+                                tickfont: { family: 'Inter, sans-serif', color: '#1f2937' },
+                                color: '#1f2937',
+                                linecolor: '#1f2937',
+                                titlefont: { color: '#1f2937' }
+                            };
+                        }
+                        if (layout.yaxis) {
+                            layout.yaxis = {
+                                ...layout.yaxis,
+                                gridcolor: '#e5e7eb',
+                                zerolinecolor: '#e5e7eb',
+                                tickfont: { family: 'Inter, sans-serif', color: '#1f2937' },
+                                color: '#1f2937',
+                                linecolor: '#1f2937',
+                                titlefont: { color: '#1f2937' }
+                            };
+                        }
+                        if (layout.polar) {
+                            layout.polar = {
+                                ...layout.polar,
+                                bgcolor: '#fff',
+                                radialaxis: {
+                                    ...((layout.polar && layout.polar.radialaxis) || {}),
+                                    gridcolor: '#e5e7eb',
+                                    linecolor: '#1f2937',
+                                    tickfont: { color: '#1f2937' },
+                                    color: '#1f2937',
+                                },
+                                angularaxis: {
+                                    ...((layout.polar && layout.polar.angularaxis) || {}),
+                                    gridcolor: '#e5e7eb',
+                                    linecolor: '#1f2937',
+                                    tickfont: { color: '#1f2937' },
+                                    color: '#1f2937',
+                                }
+                            };
+                        }
+
+                        Plotly.newPlot(div, viz.data, layout, {
+                            responsive: true,
+                            displayModeBar: true,
+                            displaylogo: false,
+                            modeBarButtonsToRemove: ['lasso2d', 'select2d']
+                        });
+                        visualizations.appendChild(div);
+                    });
+                } else {
+                    throw new Error(data.error || 'Analysis failed');
+                }
+            } catch (error) {
+                const errorDiv = document.getElementById('error');
+                errorDiv.textContent = `Error: ${error.message}`;
+                errorDiv.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html> 

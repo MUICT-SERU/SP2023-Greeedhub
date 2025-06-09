@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PYGRESS - Competency Score Analyzer</title>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9fafb;
+    }
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background-color: #ffffff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #1f2937;
+      margin-bottom: 5px;
+    }
+    h2 {
+      text-align: center;
+      font-weight: normal;
+      color: #4b5563;
+      margin-top: 0;
+      margin-bottom: 24px;
+      font-size: 16px;
+    }
+    label {
+      font-weight: 600;
+      color: #374151;
+      display: block;
+      margin-top: 20px;
+    }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background-color: #f9fafb;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #3b82f6;
+      color: white;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #2563eb;
+    }
+    .divider {
+      text-align: center;
+      margin: 20px 0;
+      color: #9ca3af;
+      position: relative;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 40%;
+      height: 1px;
+      background: #e5e7eb;
+    }
+    .divider::before {
+      left: 0;
+    }
+    .divider::after {
+      right: 0;
+    }
+    iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" style="display: flex; flex-direction: column; gap: 30px;">
+    <h1>PYGRESS</h1>
+    <h2>Analyzing coding competency of Python contributors in open-source projects</h2>
+
+    <div>
+    <label for="repoInput">Enter your GitHub repository URL:</label>
+    <input type="text" id="repoInput" placeholder="https://github.com/username/project" disabled>
+
+        <button onclick="openReport()">Open Local Report</button>
+  </div>
+
+    <div class="divider" style="margin-top: 20px; margin-bottom: 20px;">or</div>
+
+    <div>
+    <label for="fileInput">Upload local JSON files:</label>
+        <input type="file" id="fileInput" multiple disabled>
+  </div>
+
+    <iframe id="reportFrame" src=""></iframe>
+  </div>
+
+  <script>
+    function openReport() {
+      const reportPath = "Visualization_Alive_Result/A_AcraNetwork_Visualization.html";
+      document.getElementById("reportFrame").src = reportPath;
+    }
+  </script>
+</body>
+</html>
