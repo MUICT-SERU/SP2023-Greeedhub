@@ -1,0 +1,33 @@
+{
+    "CommitHash": "c58b74ec2d9fd476925854e32faea1a1514d039a",
+    "ProjectName": "alphavantage",
+    "AuthorID": "345d5cc8",
+    "AuthorDateFormat": "20180531",
+    "AuthorTimeFormat": "151105",
+    "Levels": {
+        "After": {
+            "A1": 129,
+            "A2": 83,
+            "B1": 5,
+            "B2": 0,
+            "C1": 10,
+            "C2": 5
+        },
+        "Before": {
+            "A1": 119,
+            "A2": 81,
+            "B1": 4,
+            "B2": 0,
+            "C1": 10,
+            "C2": 5
+        },
+        "Difference": {
+            "A1": 10,
+            "A2": 2,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

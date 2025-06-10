@@ -1,0 +1,33 @@
+{
+    "CommitHash": "9687f51dd1e8af8b3d5fe19cca7dce7799714e21",
+    "ProjectName": "pyngrok",
+    "AuthorID": "6a876ec7",
+    "AuthorDateFormat": "20200214",
+    "AuthorTimeFormat": "120744",
+    "Levels": {
+        "After": {
+            "A1": 273,
+            "A2": 591,
+            "B1": 97,
+            "B2": 2,
+            "C1": 1,
+            "C2": 3
+        },
+        "Before": {
+            "A1": 268,
+            "A2": 574,
+            "B1": 90,
+            "B2": 2,
+            "C1": 1,
+            "C2": 3
+        },
+        "Difference": {
+            "A1": 5,
+            "A2": 17,
+            "B1": 7,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

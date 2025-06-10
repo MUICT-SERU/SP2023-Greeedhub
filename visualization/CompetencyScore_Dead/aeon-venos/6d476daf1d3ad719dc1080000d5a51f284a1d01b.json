@@ -1,0 +1,33 @@
+{
+    "CommitHash": "6d476daf1d3ad719dc1080000d5a51f284a1d01b",
+    "ProjectName": "aeon-venos",
+    "AuthorID": "10c9320b",
+    "AuthorDateFormat": "20171114",
+    "AuthorTimeFormat": "141914",
+    "Levels": {
+        "After": {
+            "A1": 93,
+            "A2": 134,
+            "B1": 12,
+            "B2": 12,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 86,
+            "A2": 97,
+            "B1": 5,
+            "B2": 9,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 7,
+            "A2": 37,
+            "B1": 7,
+            "B2": 3,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

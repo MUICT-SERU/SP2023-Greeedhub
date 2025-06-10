@@ -1,0 +1,33 @@
+{
+    "CommitHash": "02b113b6a48a3ba0250a6a3ef96ef449071cab50",
+    "ProjectName": "AcraNetwork",
+    "AuthorID": "d0e518ba",
+    "AuthorDateFormat": "20231114",
+    "AuthorTimeFormat": "115922",
+    "Levels": {
+        "After": {
+            "A1": 250,
+            "A2": 271,
+            "B1": 18,
+            "B2": 1,
+            "C1": 2,
+            "C2": 1
+        },
+        "Before": {
+            "A1": 250,
+            "A2": 270,
+            "B1": 18,
+            "B2": 1,
+            "C1": 2,
+            "C2": 1
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 1,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

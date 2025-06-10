@@ -1,0 +1,33 @@
+{
+    "CommitHash": "2617b92d08ed87546c80e0cc01cd475d1e60ec56",
+    "ProjectName": "pandas-profiling",
+    "AuthorID": "83e90d57",
+    "AuthorDateFormat": "20221029",
+    "AuthorTimeFormat": "162900",
+    "Levels": {
+        "After": {
+            "A1": 33,
+            "A2": 21,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 29,
+            "A2": 13,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 4,
+            "A2": 8,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

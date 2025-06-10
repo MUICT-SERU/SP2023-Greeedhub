@@ -1,0 +1,33 @@
+{
+    "CommitHash": "044110bb57af077d3da72f2237e21e5cc16c840e",
+    "ProjectName": "batchflow",
+    "AuthorID": "81018fdf",
+    "AuthorDateFormat": "20190417",
+    "AuthorTimeFormat": "184408",
+    "Levels": {
+        "After": {
+            "A1": 171,
+            "A2": 172,
+            "B1": 35,
+            "B2": 48,
+            "C1": 0,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 171,
+            "A2": 140,
+            "B1": 35,
+            "B2": 48,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 32,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

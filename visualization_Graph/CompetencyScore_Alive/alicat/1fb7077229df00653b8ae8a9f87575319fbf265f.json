@@ -1,0 +1,33 @@
+{
+    "CommitHash": "1fb7077229df00653b8ae8a9f87575319fbf265f",
+    "ProjectName": "alicat",
+    "AuthorID": "5555331e",
+    "AuthorDateFormat": "20190918",
+    "AuthorTimeFormat": "124442",
+    "Levels": {
+        "After": {
+            "A1": 108,
+            "A2": 161,
+            "B1": 30,
+            "B2": 3,
+            "C1": 2,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 108,
+            "A2": 159,
+            "B1": 30,
+            "B2": 3,
+            "C1": 2,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 2,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

@@ -1,0 +1,33 @@
+{
+    "CommitHash": "14036ae3e50619294bb703361b654fd20b2bdf2d",
+    "ProjectName": "rachiopy",
+    "AuthorID": "83254caa",
+    "AuthorDateFormat": "20200914",
+    "AuthorTimeFormat": "104634",
+    "Levels": {
+        "After": {
+            "A1": 41,
+            "A2": 44,
+            "B1": 1,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 39,
+            "A2": 37,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 2,
+            "A2": 7,
+            "B1": 0,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        }
+    }
+}

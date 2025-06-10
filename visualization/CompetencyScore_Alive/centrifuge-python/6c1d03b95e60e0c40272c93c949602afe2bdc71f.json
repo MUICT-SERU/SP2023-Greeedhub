@@ -1,0 +1,33 @@
+{
+    "CommitHash": "6c1d03b95e60e0c40272c93c949602afe2bdc71f",
+    "ProjectName": "centrifuge-python",
+    "AuthorID": "9273a443",
+    "AuthorDateFormat": "20240122",
+    "AuthorTimeFormat": "195446",
+    "Levels": {
+        "After": {
+            "A1": 379,
+            "A2": 504,
+            "B1": 80,
+            "B2": 2,
+            "C1": 5,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 315,
+            "A2": 456,
+            "B1": 63,
+            "B2": 2,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 64,
+            "A2": 48,
+            "B1": 17,
+            "B2": 0,
+            "C1": 4,
+            "C2": 0
+        }
+    }
+}

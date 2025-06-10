@@ -1,0 +1,33 @@
+{
+    "CommitHash": "267c45fd10ef1730932d3bb7157a7b0b60dd1850",
+    "ProjectName": "django-distill",
+    "AuthorID": "372b5f9f",
+    "AuthorDateFormat": "20230322",
+    "AuthorTimeFormat": "183417",
+    "Levels": {
+        "After": {
+            "A1": 148,
+            "A2": 171,
+            "B1": 15,
+            "B2": 0,
+            "C1": 0,
+            "C2": 1
+        },
+        "Before": {
+            "A1": 145,
+            "A2": 171,
+            "B1": 14,
+            "B2": 0,
+            "C1": 0,
+            "C2": 1
+        },
+        "Difference": {
+            "A1": 3,
+            "A2": 0,
+            "B1": 1,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

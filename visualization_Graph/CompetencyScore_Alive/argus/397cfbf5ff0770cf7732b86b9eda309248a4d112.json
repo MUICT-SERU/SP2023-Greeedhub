@@ -1,0 +1,33 @@
+{
+    "CommitHash": "397cfbf5ff0770cf7732b86b9eda309248a4d112",
+    "ProjectName": "argus",
+    "AuthorID": "f5f6741c",
+    "AuthorDateFormat": "20211109",
+    "AuthorTimeFormat": "202727",
+    "Levels": {
+        "After": {
+            "A1": 95,
+            "A2": 141,
+            "B1": 9,
+            "B2": 1,
+            "C1": 0,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 93,
+            "A2": 159,
+            "B1": 9,
+            "B2": 1,
+            "C1": 0,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 2,
+            "A2": 0,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

@@ -1,0 +1,33 @@
+{
+    "CommitHash": "81663c7d1a0c0d814a523cf0719b204442463433",
+    "ProjectName": "cabrillo",
+    "AuthorID": "b9bcc932",
+    "AuthorDateFormat": "20191125",
+    "AuthorTimeFormat": "080319",
+    "Levels": {
+        "After": {
+            "A1": 332,
+            "A2": 404,
+            "B1": 39,
+            "B2": 154,
+            "C1": 6,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 273,
+            "A2": 378,
+            "B1": 30,
+            "B2": 140,
+            "C1": 4,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 59,
+            "A2": 26,
+            "B1": 9,
+            "B2": 14,
+            "C1": 2,
+            "C2": 0
+        }
+    }
+}

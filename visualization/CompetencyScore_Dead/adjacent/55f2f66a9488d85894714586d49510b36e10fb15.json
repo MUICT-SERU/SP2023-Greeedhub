@@ -1,0 +1,33 @@
+{
+    "CommitHash": "55f2f66a9488d85894714586d49510b36e10fb15",
+    "ProjectName": "adjacent",
+    "AuthorID": "9273a443",
+    "AuthorDateFormat": "20151002",
+    "AuthorTimeFormat": "091234",
+    "Levels": {
+        "After": {
+            "A1": 16,
+            "A2": 38,
+            "B1": 2,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 15,
+            "A2": 35,
+            "B1": 2,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 1,
+            "A2": 3,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

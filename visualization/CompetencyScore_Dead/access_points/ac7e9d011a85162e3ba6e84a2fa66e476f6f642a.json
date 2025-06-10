@@ -1,0 +1,33 @@
+{
+    "CommitHash": "ac7e9d011a85162e3ba6e84a2fa66e476f6f642a",
+    "ProjectName": "access_points",
+    "AuthorID": "0a13fa91",
+    "AuthorDateFormat": "20161030",
+    "AuthorTimeFormat": "153619",
+    "Levels": {
+        "After": {
+            "A1": 181,
+            "A2": 104,
+            "B1": 18,
+            "B2": 3,
+            "C1": 2,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 173,
+            "A2": 100,
+            "B1": 18,
+            "B2": 1,
+            "C1": 1,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 8,
+            "A2": 4,
+            "B1": 0,
+            "B2": 2,
+            "C1": 1,
+            "C2": 0
+        }
+    }
+}

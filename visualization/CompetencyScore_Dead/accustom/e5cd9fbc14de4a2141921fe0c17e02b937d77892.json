@@ -1,0 +1,33 @@
+{
+    "CommitHash": "e5cd9fbc14de4a2141921fe0c17e02b937d77892",
+    "ProjectName": "accustom",
+    "AuthorID": "dd6adade",
+    "AuthorDateFormat": "20230316",
+    "AuthorTimeFormat": "013956",
+    "Levels": {
+        "After": {
+            "A1": 448,
+            "A2": 813,
+            "B1": 98,
+            "B2": 11,
+            "C1": 6,
+            "C2": 2
+        },
+        "Before": {
+            "A1": 400,
+            "A2": 757,
+            "B1": 87,
+            "B2": 9,
+            "C1": 2,
+            "C2": 2
+        },
+        "Difference": {
+            "A1": 48,
+            "A2": 56,
+            "B1": 11,
+            "B2": 2,
+            "C1": 4,
+            "C2": 0
+        }
+    }
+}

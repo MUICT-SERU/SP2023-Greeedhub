@@ -1,0 +1,33 @@
+{
+    "CommitHash": "f5b4fca347b183db64d0ba1dbe68469722eeb459",
+    "ProjectName": "cron-descriptor",
+    "AuthorID": "c21212e1",
+    "AuthorDateFormat": "20160204",
+    "AuthorTimeFormat": "044344",
+    "Levels": {
+        "After": {
+            "A1": 19,
+            "A2": 15,
+            "B1": 4,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 19,
+            "A2": 15,
+            "B1": 4,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 0,
+            "B1": 0,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

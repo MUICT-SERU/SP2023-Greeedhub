@@ -1,0 +1,33 @@
+{
+    "CommitHash": "a5460598bf806055e35af4454d8d9828455029bd",
+    "ProjectName": "pytest-ansible",
+    "AuthorID": "7056cc55",
+    "AuthorDateFormat": "20231211",
+    "AuthorTimeFormat": "150535",
+    "Levels": {
+        "After": {
+            "A1": 396,
+            "A2": 613,
+            "B1": 88,
+            "B2": 60,
+            "C1": 4,
+            "C2": 8
+        },
+        "Before": {
+            "A1": 372,
+            "A2": 638,
+            "B1": 92,
+            "B2": 57,
+            "C1": 4,
+            "C2": 8
+        },
+        "Difference": {
+            "A1": 24,
+            "A2": 0,
+            "B1": 0,
+            "B2": 3,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

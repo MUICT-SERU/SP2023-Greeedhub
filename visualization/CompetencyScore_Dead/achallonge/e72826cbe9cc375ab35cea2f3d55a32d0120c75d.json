@@ -1,0 +1,33 @@
+{
+    "CommitHash": "e72826cbe9cc375ab35cea2f3d55a32d0120c75d",
+    "ProjectName": "achallonge",
+    "AuthorID": "dfc96021",
+    "AuthorDateFormat": "20170103",
+    "AuthorTimeFormat": "203347",
+    "Levels": {
+        "After": {
+            "A1": 98,
+            "A2": 247,
+            "B1": 13,
+            "B2": 1,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 98,
+            "A2": 242,
+            "B1": 11,
+            "B2": 1,
+            "C1": 1,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 0,
+            "A2": 5,
+            "B1": 2,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        }
+    }
+}

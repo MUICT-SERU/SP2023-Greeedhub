@@ -1,0 +1,33 @@
+{
+    "CommitHash": "3057ad6b1665e178fdf92c313d9960ac3775fac2",
+    "ProjectName": "ArcREST",
+    "AuthorID": "c085f858",
+    "AuthorDateFormat": "20160130",
+    "AuthorTimeFormat": "205708",
+    "Levels": {
+        "After": {
+            "A1": 192,
+            "A2": 266,
+            "B1": 11,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        },
+        "Before": {
+            "A1": 188,
+            "A2": 256,
+            "B1": 12,
+            "B2": 0,
+            "C1": 0,
+            "C2": 0
+        },
+        "Difference": {
+            "A1": 4,
+            "A2": 10,
+            "B1": 0,
+            "B2": 0,
+            "C1": 1,
+            "C2": 0
+        }
+    }
+}
